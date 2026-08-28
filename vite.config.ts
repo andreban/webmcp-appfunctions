@@ -1,0 +1,16 @@
+/**
+ * Copyright 2026 Andre Cipriani Bandarra
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  server: {
+    port: 5173,
+    open: false,
+  },
+  build: {
+    target: "esnext",
+  },
+});
