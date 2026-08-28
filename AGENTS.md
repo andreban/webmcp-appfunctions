@@ -61,6 +61,9 @@ The application exclusively uses the official Android 16 (API 36+) `cmd app_func
 - **State:** `adb shell cmd app_function set-enabled --package <pkg> --function <funcId> --state <enable|disable|default>`.
 - **Security:** All parameters must be JSON-serialized and shell-sanitized before execution to prevent command injection.
 
+### 2.5 TypeScript Style & Member Naming
+- **Private Variables & Fields:** Do NOT prefix private fields or variables with an underscore (`_`). Use TypeScript's `private` access modifier directly (e.g., `private state:` rather than `private _state:`).
+
 ---
 
 ## 3. Repository Architecture
@@ -125,4 +128,5 @@ webmcp-appfunctions/
 - [ ] All types reference the official `webmcp-types` package.
 - [ ] No unnecessary third-party UI framework dependencies added.
 - [ ] Shell parameter inputs are safely escaped and JSON-encoded.
+- [ ] No private variables or fields prefixed with underscore (`_`).
 - [ ] Build (`npm run build`) and tests pass without errors or type warnings.
