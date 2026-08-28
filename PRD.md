@@ -326,8 +326,8 @@ webmcp-appfunctions/
 4. **Agent Tool Call Visibility:**
    - The UI provides real-time logging and telemetry for AppFunctions invocations.
 5. **Open Source Licensing & SPDX Headers:**
-   - The project is licensed under **Apache-2.0**.
-   - Every source file (`.ts`, `.js`, `.css`, `.html`, etc.) must include a standard Apache-2.0 license header with `SPDX-License-Identifier: Apache-2.0`.
+   - The project is licensed under **Apache-2.0** (`LICENSE`).
+   - Every source file (`.ts`, `.js`, `.css`, `.html`, etc.) must include a clean short-form SPDX header (`Copyright 2026 Andre Cipriani Bandarra` and `SPDX-License-Identifier: Apache-2.0`).
 
 ---
 
