@@ -93,6 +93,38 @@ export class WebUsbTransport implements Transport {
   };
 
   /**
+   * Opens a connection using an already acquired USBDevice
+   *
+   * @param device
+   * @param options
+   */
+  static async openDevice(device: USBDevice, options: Options): Promise<WebUsbTransport> {
+    if (!device.opened) {
+      await device.open();
+    }
+
+    // Find the WebUSB device
+    const match = this.findMatch(device, ADB_DEVICE);
+    if (!match) {
+      throw new Error('Could not find an ADB device');
+    }
+
+    // Select the configuration and claim the interface
+    await device.selectConfiguration(match.conf.configurationValue);
+    await device.claimInterface(match.intf.interfaceNumber);
+
+    // Store the correct endpoints
+    const endpointIn = WebUsbTransport.getEndpointNum(match.alternate.endpoints, 'in');
+    const endpointOut = WebUsbTransport.getEndpointNum(match.alternate.endpoints, 'out');
+
+    const transport = new WebUsbTransport(device, match, endpointIn, endpointOut, options);
+    if (options.debug) {
+      console.log('Created new Transport: ', transport);
+    }
+    return transport;
+  }
+
+  /**
    * Opens a connection to a WebUSB device
    *
    * @param options
@@ -104,29 +136,7 @@ export class WebUsbTransport implements Transport {
           'and that you are using a Chromium-based browser.');
     }
     const device = await navigator.usb.requestDevice({filters: DEVICE_FILTERS});
-    await device.open();
-
-    // Find the WebUSB device
-    const match = this.findMatch(device, ADB_DEVICE);
-    if (!match) {
-      throw new Error('Could not find an ADB device');
-    }
-
-    // Select the configuration and claim the interface
-    await device.selectConfiguration(match.conf.configurationValue);
-    await device.claimInterface(match.intf.interfaceNumber);
-    // await device.selectAlternateInterface(
-    //     match.intf.interfaceNumber, match.alternate.alternateSetting);
-
-    // Store the correct endpoints
-    const endpointIn = WebUsbTransport.getEndpointNum(match.alternate.endpoints, 'in');
-    const endpointOut = WebUsbTransport.getEndpointNum(match.alternate.endpoints, 'out');
-
-    const transport = new WebUsbTransport(device, match, endpointIn, endpointOut, options);
-    if (options.debug) {
-      console.log('Created new Transport: ', transport);
-    }
-    return transport;
+    return this.openDevice(device, options);
   }
 
   private static findMatch(device: USBDevice, filter: USBDeviceFilter): DeviceMatch | null {
