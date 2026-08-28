@@ -228,5 +228,56 @@ describe('ADB Transport Manager & Diagnostics', () => {
         }
       }
     });
+
+    it('fetches and parses extended device metadata via getprop', async () => {
+      manager['setState']('ready');
+      manager['client'] = {} as unknown as AdbClient;
+      manager['deviceInfo'] = {
+        productName: 'komodo',
+        productDevice: 'komodo',
+        productModel: 'Pixel 9 Pro',
+        features: ['cmd'],
+      };
+
+      vi.spyOn(manager, 'execShell').mockResolvedValue({
+        stdout: 'Google\n---PROP---\nPixel 9 Pro\n---PROP---\n16\n---PROP---\n36',
+        stderr: '',
+        exitCode: 0,
+        raw: '',
+      });
+
+      const updated = await manager.fetchDeviceMetadata();
+      expect(updated).toEqual({
+        productName: 'komodo',
+        productDevice: 'komodo',
+        productModel: 'Pixel 9 Pro',
+        features: ['cmd'],
+        manufacturer: 'Google',
+        model: 'Pixel 9 Pro',
+        androidVersion: '16',
+        sdkVersion: '36',
+      });
+    });
+
+    it('handles getprop failure gracefully without throwing', async () => {
+      manager['setState']('ready');
+      manager['client'] = {} as unknown as AdbClient;
+      manager['deviceInfo'] = {
+        productName: 'komodo',
+        productDevice: 'komodo',
+        productModel: 'Pixel 9 Pro',
+        features: ['cmd'],
+      };
+
+      vi.spyOn(manager, 'execShell').mockRejectedValue(new Error('getprop failed'));
+
+      const result = await manager.fetchDeviceMetadata();
+      expect(result).toEqual({
+        productName: 'komodo',
+        productDevice: 'komodo',
+        productModel: 'Pixel 9 Pro',
+        features: ['cmd'],
+      });
+    });
   });
 });

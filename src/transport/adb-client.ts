@@ -380,6 +380,55 @@ export class AdbManager {
   }
 
   /**
+   * Fetches extended device properties via Android `getprop` shell command.
+   * Updates cached deviceInfo and notifies state listeners.
+   *
+   * @returns Updated AdbDeviceInfo or null if not connected.
+   */
+  async fetchDeviceMetadata(): Promise<AdbDeviceInfo | null> {
+    if (this.state !== 'ready' || !this.client || !this.deviceInfo) {
+      return this.deviceInfo;
+    }
+
+    try {
+      const cmd =
+        'getprop ro.product.manufacturer; echo "---PROP---"; getprop ro.product.model; echo "---PROP---"; getprop ro.build.version.release; echo "---PROP---"; getprop ro.build.version.sdk';
+      const result = await this.execShell(cmd, { timeoutMs: 3000 });
+
+      if (result.stdout) {
+        const parts = result.stdout.split('---PROP---').map((p) => p.trim());
+        const [mfg, model, release, sdk] = parts;
+
+        const updated: AdbDeviceInfo = {
+          ...this.deviceInfo,
+          manufacturer: mfg || this.deviceInfo.manufacturerName || undefined,
+          model: model || this.deviceInfo.productModel || undefined,
+          androidVersion: release || undefined,
+          sdkVersion: sdk || undefined,
+        };
+
+        this.deviceInfo = updated;
+        logger.debug(
+          'ADB',
+          `Fetched device metadata: ${updated.manufacturer ?? ''} ${updated.model ?? ''} (Android ${updated.androidVersion ?? '?'}, SDK ${updated.sdkVersion ?? '?'})`
+        );
+
+        for (const listener of this.stateListeners) {
+          try {
+            listener(this.state);
+          } catch (err) {
+            logger.error('ADB', 'Error in state change listener:', err);
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn('ADB', 'Failed to fetch extended device properties via getprop:', err);
+    }
+
+    return this.deviceInfo;
+  }
+
+  /**
    * Subscribes to connection state changes.
    * @returns Unsubscribe function.
    */

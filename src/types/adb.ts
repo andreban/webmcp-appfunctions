@@ -50,6 +50,10 @@ export interface AdbDeviceInfo {
   serialNumber?: string;
   vendorId?: number;
   productId?: number;
+  manufacturer?: string;
+  model?: string;
+  androidVersion?: string;
+  sdkVersion?: string;
 }
 
 /**
