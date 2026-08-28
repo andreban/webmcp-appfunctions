@@ -51,7 +51,8 @@ For HTML and Markdown files:
 ### 2.3 Tech Stack Constraints
 - **Framework:** Vanilla TypeScript with Vite (no React, Vue, Angular, or heavy UI frameworks).
 - **Styling:** Modern CSS (CSS custom properties, Grid, Flexbox, developer aesthetic).
-- **Transport:** `@googlechromelabs/wadb` or bundled TypeScript `wadb` over `navigator.usb` (WebUSB).
+- **Transport:** Vendored TypeScript `wadb` in `src/transport/wadb/` over `navigator.usb` (WebUSB).
+- **Issue Scoping:** When implementing GitHub issues, strictly scope changes to the specific tasks listed in the issue description. Do not scaffold or implement components designated for future milestones.
 
 ### 2.4 Android ADB Shell Interface
 The application exclusively uses the official Android 16 (API 36+) `cmd app_function` commands:
