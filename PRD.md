@@ -3,6 +3,7 @@
 ## Project Name: `webmcp-appfunctions`
 **Subtitle:** WebMCP ↔ Android AppFunctions Bridge via WebUSB (wadb)  
 **Status:** Ready for Review  
+**License:** Apache-2.0  
 **Target Platform:** Chromium Browsers with Native WebMCP Support & Android 16+ (API 36+)  
 **Technology Stack:** Vanilla TypeScript, Vite, `wadb` (WebADB over WebUSB), `webmcp-types` (W3C Web Machine Learning CG)
 
@@ -324,6 +325,9 @@ webmcp-appfunctions/
    - All parameter values passed to `cmd app_function execute-app-function` must be strictly sanitized and JSON-encoded to prevent shell injection or arbitrary command execution on the host Android device.
 4. **Agent Tool Call Visibility:**
    - The UI provides real-time logging and telemetry for AppFunctions invocations.
+5. **Open Source Licensing & SPDX Headers:**
+   - The project is licensed under **Apache-2.0**.
+   - Every source file (`.ts`, `.js`, `.css`, `.html`, etc.) must include a standard Apache-2.0 license header with `SPDX-License-Identifier: Apache-2.0`.
 
 ---
 
@@ -333,6 +337,7 @@ webmcp-appfunctions/
 - Initialize Vite + TypeScript project.
 - Configure `package.json` with the official `webmcp-types` and `@types/w3c-web-usb`.
 - Configure `tsconfig.json` with `webmcp-types` in `types`.
+- Add `LICENSE` (Apache-2.0) and configure SPDX headers on all source files.
 - Integrate `wadb` for WebUSB ADB connection.
 - Implement RSA key generation, persistent browser storage, and connection lifecycle UI.
 - Verify basic `adb shell` execution over WebUSB in the browser.
@@ -361,4 +366,6 @@ webmcp-appfunctions/
 - [ ] Registers discovered AppFunctions directly into native `document.modelContext` as valid WebMCP tools typed via official `webmcp-types`.
 - [ ] Calling a registered WebMCP tool via `document.modelContext.executeTool` executes `cmd app_function execute-app-function` on the Android device and returns structured JSON output.
 - [ ] Developer can manually test and inspect any AppFunction through the web UI.
+- [ ] Project is licensed under Apache-2.0 with valid `LICENSE` file.
+- [ ] All source files contain the required Apache-2.0 SPDX license header.
 - [ ] Application contains unit tests covering schema parsing, argument escaping, and WebMCP tool registration.
