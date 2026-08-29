@@ -82,4 +82,30 @@ describe('Browser RSA Authentication Keys', () => {
     await keyStore.saveKey(key);
     expect(challenges).toBe(2);
   });
+
+  it('AdbClient.generateKey produces extractable keypairs', async () => {
+    const { AdbClient } = await import('../src/transport/wadb/lib/AdbClient');
+    const keyPair = await AdbClient.generateKey(false, 2048);
+    expect(keyPair).toBeDefined();
+    expect(keyPair.publicKey.extractable).toBe(true);
+    expect(keyPair.privateKey.extractable).toBe(true);
+  });
+
+  it('safely handles non-extractable keys in BrowserKeyStore without throwing InvalidAccessError', async () => {
+    const nonExtractableKey = await crypto.subtle.generateKey(
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+        hash: { name: 'SHA-1' },
+      },
+      false,
+      ['sign', 'verify']
+    );
+
+    expect(nonExtractableKey.privateKey.extractable).toBe(false);
+    await expect(keyStore.saveKey(nonExtractableKey)).resolves.not.toThrow();
+    const loaded = await keyStore.loadKeys();
+    expect(loaded.length).toBe(1);
+  });
 });

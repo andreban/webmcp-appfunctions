@@ -210,18 +210,22 @@ export class BrowserKeyStore implements KeyStore {
 
     // 2. Try localStorage fallback or mirror
     if (isLocalStorageAvailable()) {
-      try {
-        const pubJwk = await crypto.subtle.exportKey('jwk', key.publicKey);
-        const privJwk = await crypto.subtle.exportKey('jwk', key.privateKey);
+      if (key.publicKey.extractable && key.privateKey.extractable) {
+        try {
+          const pubJwk = await crypto.subtle.exportKey('jwk', key.publicKey);
+          const privJwk = await crypto.subtle.exportKey('jwk', key.privateKey);
 
-        const existingRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
-        const list: SerializedJwkKeyPair[] = existingRaw ? JSON.parse(existingRaw) : [];
-        list.push({ publicKey: pubJwk, privateKey: privJwk });
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
-        saved = true;
-        logger.info('ADB', 'Saved RSA keypair to localStorage');
-      } catch (err) {
-        logger.warn('ADB', 'localStorage key save failed', err);
+          const existingRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+          const list: SerializedJwkKeyPair[] = existingRaw ? JSON.parse(existingRaw) : [];
+          list.push({ publicKey: pubJwk, privateKey: privJwk });
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+          saved = true;
+          logger.info('ADB', 'Saved RSA keypair to localStorage');
+        } catch (err) {
+          logger.warn('ADB', 'localStorage key save failed', err);
+        }
+      } else {
+        logger.debug('ADB', 'Skipping localStorage key save: keypair is not extractable');
       }
     }
 
