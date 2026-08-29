@@ -102,7 +102,9 @@ export class AppFunctionsDiscovery {
 
     logger.info(
       'ADB',
-      `Discovered ${functions.length} AppFunction(s) across ${packages.length} package(s) in ${executionTimeMs}ms.`
+      `Discovered ${functions.length} AppFunction(s) across ${packages.length} package(s) in ${executionTimeMs}ms.`,
+      { totalCount: functions.length, packageCount: packages.length },
+      executionTimeMs
     );
 
     return {
