@@ -205,6 +205,51 @@ describe('LogDrawer Component', () => {
     });
   });
 
+  describe('Fullscreen / Maximize Viewport Controls', () => {
+    it('supports starting in fullscreen mode', () => {
+      drawer = new LogDrawer(mockContainer as unknown as HTMLElement, {
+        loggerInstance: testLogger,
+        isFullscreen: true,
+      });
+
+      expect(drawer.isFullscreen()).toBe(true);
+      expect(drawer.isCollapsed()).toBe(false);
+      expect(mockContainer.innerHTML).toContain('is-fullscreen');
+      expect(mockContainer.innerHTML).toContain('Restore');
+    });
+
+    it('toggles fullscreen state with toggleFullscreen() and setFullscreen()', () => {
+      drawer = new LogDrawer(mockContainer as unknown as HTMLElement, {
+        loggerInstance: testLogger,
+        isFullscreen: false,
+      });
+
+      expect(drawer.isFullscreen()).toBe(false);
+
+      drawer.toggleFullscreen();
+      expect(drawer.isFullscreen()).toBe(true);
+      expect(mockContainer.innerHTML).toContain('is-fullscreen');
+
+      drawer.setFullscreen(false);
+      expect(drawer.isFullscreen()).toBe(false);
+      expect(mockContainer.innerHTML).not.toContain('is-fullscreen');
+    });
+
+    it('uncollapses drawer when entering fullscreen mode', () => {
+      drawer = new LogDrawer(mockContainer as unknown as HTMLElement, {
+        loggerInstance: testLogger,
+        isCollapsed: true,
+      });
+
+      expect(drawer.isCollapsed()).toBe(true);
+
+      drawer.toggleFullscreen(true);
+      expect(drawer.isFullscreen()).toBe(true);
+      expect(drawer.isCollapsed()).toBe(false);
+      expect(mockContainer.innerHTML).toContain('log-stream-container');
+    });
+  });
+
   describe('Auto-Scroll Functionality', () => {
     it('updates auto-scroll state with setAutoScroll()', () => {
       drawer = new LogDrawer(mockContainer as unknown as HTMLElement, {
