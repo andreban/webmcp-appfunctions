@@ -207,7 +207,7 @@ export class AdbClient implements MessageListener {
   }
 
   static async generateKey(dump: boolean, keySize: number): Promise<CryptoKeyPair> {
-    const extractable = dump;
+    const extractable = true;
     const key = await crypto.subtle.generateKey({
       name: 'RSASSA-PKCS1-v1_5',
       modulusLength: keySize,
