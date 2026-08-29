@@ -421,7 +421,7 @@ export class AppFunctionsExecutor {
           errorMsg = `AppFunctions service error on Android device: ${stderr}`;
         }
 
-        logger.error('EXEC', errorMsg);
+        logger.error('EXEC', errorMsg, shellResult.stderr, executionTimeMs);
 
         return {
           success: false,
@@ -437,7 +437,9 @@ export class AppFunctionsExecutor {
       if (!parsed.success) {
         logger.warn(
           'EXEC',
-          `AppFunction '${functionId}' execution returned an error: ${parsed.error}`
+          `AppFunction '${functionId}' execution returned an error: ${parsed.error}`,
+          parsed.error,
+          executionTimeMs
         );
         return {
           success: false,
@@ -450,7 +452,9 @@ export class AppFunctionsExecutor {
 
       logger.info(
         'EXEC',
-        `AppFunction '${functionId}' executed successfully in ${executionTimeMs}ms.`
+        `AppFunction '${functionId}' executed successfully in ${executionTimeMs}ms.`,
+        parsed.data,
+        executionTimeMs
       );
 
       return {
@@ -460,7 +464,8 @@ export class AppFunctionsExecutor {
         rawOutput: shellResult.raw,
       };
     } catch (err) {
-      logger.error('EXEC', `Execution failed for '${functionId}':`, err);
+      const executionTimeMs = Date.now() - startTime;
+      logger.error('EXEC', `Execution failed for '${functionId}':`, err, executionTimeMs);
       throw err;
     }
   }

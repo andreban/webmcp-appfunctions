@@ -5,7 +5,7 @@
 
 import './styles/main.css';
 import { AdbManager } from './transport/adb-client';
-import { ConnectionBar, FunctionCatalog, FunctionTester } from './ui';
+import { ConnectionBar, FunctionCatalog, FunctionTester, LogDrawer } from './ui';
 import { WebMcpBridge, isWebMcpSupported } from './webmcp';
 import { logger } from './utils/logger';
 
@@ -54,4 +54,12 @@ if (catalogContainer) {
     },
   });
   logger.info('APP', 'FunctionCatalog mounted successfully.');
+}
+
+// Mount LogDrawer UI component
+const logDrawerContainer = document.getElementById('log-drawer');
+export let logDrawer: LogDrawer | null = null;
+if (logDrawerContainer) {
+  logDrawer = new LogDrawer(logDrawerContainer);
+  logger.info('APP', 'LogDrawer mounted successfully.');
 }
