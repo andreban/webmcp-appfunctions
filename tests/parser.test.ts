@@ -11,6 +11,7 @@ import {
   parseResponse,
   normalizeDataType,
   extractJsonPayload,
+  extractPackageNameFromIdentifier,
   AppFunctionsParseError,
   stripAnsiCodes,
 } from '../src/android/parser';
@@ -71,6 +72,51 @@ Done.
       expect(() => extractJsonPayload('Error: invalid command syntax')).toThrow(
         AppFunctionsParseError
       );
+    });
+  });
+
+  describe('extractPackageNameFromIdentifier', () => {
+    it('extracts package name from fully qualified class and method identifier with hash', () => {
+      const id =
+        'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask';
+      expect(extractPackageNameFromIdentifier(id)).toBe(
+        'me.bandarra.example.todo.appfunctions'
+      );
+    });
+
+    it('extracts package name from standard ClassName#MethodName with package prefix', () => {
+      const id = 'com.example.notes.NotesService#createNote';
+      expect(extractPackageNameFromIdentifier(id)).toBe('com.example.notes');
+    });
+
+    it('extracts package name from package#method format without explicit class name', () => {
+      const id = 'com.example.calculator#add';
+      expect(extractPackageNameFromIdentifier(id)).toBe('com.example.calculator');
+    });
+
+    it('extracts package name from dot-separated method format', () => {
+      const id = 'com.example.notes.createNote';
+      expect(extractPackageNameFromIdentifier(id)).toBe('com.example.notes');
+    });
+
+    it('extracts package name from fully qualified class name without method', () => {
+      const className =
+        'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService';
+      expect(extractPackageNameFromIdentifier(className)).toBe(
+        'me.bandarra.example.todo.appfunctions'
+      );
+    });
+
+    it('returns empty string for simple identifiers without dot package prefix', () => {
+      expect(extractPackageNameFromIdentifier('NotesService#createNote')).toBe('');
+      expect(extractPackageNameFromIdentifier('createNote')).toBe('');
+      expect(extractPackageNameFromIdentifier('NotesService')).toBe('');
+    });
+
+    it('returns empty string for invalid or empty inputs', () => {
+      expect(extractPackageNameFromIdentifier('')).toBe('');
+      expect(extractPackageNameFromIdentifier('   ')).toBe('');
+      expect(extractPackageNameFromIdentifier(undefined)).toBe('');
     });
   });
 
@@ -383,6 +429,72 @@ Done.
       expect(result?.parameters[1].dataType).toBe('double');
       expect(result?.parameters[1].isRequired).toBe(true);
     });
+
+    it('extracts packageName from functionId when top-level package is omitted (Issue #26)', () => {
+      const raw = {
+        id: 'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask',
+        description: 'Creates a todo task',
+        parameters: [{ name: 'title', type: 'String' }],
+      };
+
+      const result = parseFunctionDefinition(raw);
+      expect(result).not.toBeNull();
+      expect(result?.packageName).toBe('me.bandarra.example.todo.appfunctions');
+      expect(result?.functionId).toBe(
+        'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask'
+      );
+      expect(result?.className).toBe(
+        'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService'
+      );
+      expect(result?.methodName).toBe('createTask');
+      expect(result?.description).toBe('Creates a todo task');
+      expect(result?.parameters).toHaveLength(1);
+    });
+
+    it('uses fallbackPackage when raw object has no package field and functionId is simple', () => {
+      const raw = {
+        function: 'NotesService#createNote',
+        description: 'Creates a note',
+      };
+
+      const result = parseFunctionDefinition(raw, 'com.example.notes');
+      expect(result?.packageName).toBe('com.example.notes');
+      expect(result?.functionId).toBe('NotesService#createNote');
+      expect(result?.className).toBe('NotesService');
+      expect(result?.methodName).toBe('createNote');
+    });
+
+    it('prioritizes explicit package field over extracted packageName from id', () => {
+      const raw = {
+        package: 'com.override.pkg',
+        id: 'com.example.notes.NotesService#createNote',
+      };
+
+      const result = parseFunctionDefinition(raw);
+      expect(result?.packageName).toBe('com.override.pkg');
+      expect(result?.functionId).toBe('com.example.notes.NotesService#createNote');
+    });
+
+    it('extracts packageName from className when functionId has no package prefix', () => {
+      const raw = {
+        functionId: 'createNote',
+        className: 'com.example.notes.NotesAppFunctionService',
+        methodName: 'createNote',
+      };
+
+      const result = parseFunctionDefinition(raw);
+      expect(result?.packageName).toBe('com.example.notes');
+      expect(result?.className).toBe('com.example.notes.NotesAppFunctionService');
+      expect(result?.methodName).toBe('createNote');
+    });
+
+    it('supports alternative package field names (applicationPackage, targetPackage, package_name, appPackage, pkg)', () => {
+      expect(parseFunctionDefinition({ applicationPackage: 'com.app.one', function: 'fn1' })?.packageName).toBe('com.app.one');
+      expect(parseFunctionDefinition({ targetPackage: 'com.app.two', function: 'fn2' })?.packageName).toBe('com.app.two');
+      expect(parseFunctionDefinition({ package_name: 'com.app.three', function: 'fn3' })?.packageName).toBe('com.app.three');
+      expect(parseFunctionDefinition({ appPackage: 'com.app.four', function: 'fn4' })?.packageName).toBe('com.app.four');
+      expect(parseFunctionDefinition({ pkg: 'com.app.five', function: 'fn5' })?.packageName).toBe('com.app.five');
+    });
   });
 
   describe('parseRawAppFunctionsJson', () => {
@@ -406,6 +518,48 @@ Done.
       expect(results).toHaveLength(2);
       expect(results[0].functionId).toBe('NotesService#createNote');
       expect(results[1].functionId).toBe('NotesService#getNotes');
+    });
+
+    it('parses Android 16 CLI output without package fields and extracts packageName for each function', () => {
+      const rawJson = [
+        {
+          id: 'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask',
+          description: 'Creates a task',
+          parameters: [{ name: 'task', type: 'String' }],
+        },
+        {
+          id: 'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#getTasks',
+          description: 'Lists tasks',
+          parameters: [],
+        },
+        {
+          id: 'com.example.notes.NotesService#createNote',
+          description: 'Creates note',
+          parameters: [],
+        },
+      ];
+
+      const results = parseRawAppFunctionsJson(rawJson);
+      expect(results).toHaveLength(3);
+      expect(results[0].packageName).toBe('me.bandarra.example.todo.appfunctions');
+      expect(results[0].functionId).toBe(
+        'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask'
+      );
+      expect(results[1].packageName).toBe('me.bandarra.example.todo.appfunctions');
+      expect(results[2].packageName).toBe('com.example.notes');
+    });
+
+    it('applies fallbackPackage to direct array elements when package is missing', () => {
+      const rawJson = [
+        {
+          function: 'NotesService#createNote',
+          parameters: [],
+        },
+      ];
+
+      const results = parseRawAppFunctionsJson(rawJson, 'com.example.fallback');
+      expect(results).toHaveLength(1);
+      expect(results[0].packageName).toBe('com.example.fallback');
     });
 
     it('parses a wrapped functions object: { functions: [...] }', () => {
@@ -474,6 +628,105 @@ Done.
       expect(results).toHaveLength(1);
       expect(results[0].packageName).toBe('com.example.camera');
       expect(results[0].methodName).toBe('takePhoto');
+    });
+
+    it('parses real Android 16 CLI metadata with AppFunctionStaticMetadata and filters component docs', () => {
+      const rawJson = {
+        'me.bandarra.example.todo': [
+          {
+            'AppFunctionStaticMetadata-me.bandarra.example.todo': {
+              functionId: [
+                'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask',
+              ],
+              packageName: ['me.bandarra.example.todo'],
+              description: ['Creates a new todo task.'],
+              enabledByDefault: [true],
+              parameters: [
+                {
+                  name: ['title'],
+                  description: ['Title of the task'],
+                  isRequired: [true],
+                  dataTypeMetadata: [{ type: [8], isNullable: [false] }],
+                },
+                {
+                  name: ['priority'],
+                  description: ['Priority level'],
+                  isRequired: [false],
+                  dataTypeMetadata: [{ type: [8], isNullable: [true] }],
+                },
+                {
+                  name: ['tags'],
+                  description: ['List of tags'],
+                  isRequired: [false],
+                  dataTypeMetadata: [
+                    {
+                      type: [10],
+                      itemType: [{ type: [8], isNullable: [false] }],
+                    },
+                  ],
+                },
+              ],
+              response: [
+                {
+                  description: ['Created task'],
+                  valueType: [
+                    {
+                      type: [11],
+                      dataTypeReference: [
+                        'me.bandarra.example.todo.appfunctions.model.TodoTaskDto',
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+            'AppFunctionRuntimeMetadata-me.bandarra.example.todo': {
+              enabled: [true],
+            },
+          },
+          {
+            'AppFunctionComponentMetadataDocument-me.bandarra.example.todo': {
+              dataTypes: [],
+            },
+          },
+        ],
+      };
+
+      const results = parseRawAppFunctionsJson(rawJson);
+      expect(results).toHaveLength(1);
+      expect(results[0].packageName).toBe('me.bandarra.example.todo');
+      expect(results[0].functionId).toBe(
+        'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask'
+      );
+      expect(results[0].methodName).toBe('createTask');
+      expect(results[0].description).toBe('Creates a new todo task.');
+      expect(results[0].enabled).toBe(true);
+
+      expect(results[0].parameters).toHaveLength(3);
+      expect(results[0].parameters[0]).toMatchObject({
+        name: 'title',
+        dataType: 'string',
+        isRequired: true,
+      });
+      expect(results[0].parameters[1]).toMatchObject({
+        name: 'priority',
+        dataType: 'string',
+        isRequired: false,
+      });
+      expect(results[0].parameters[2]).toMatchObject({
+        name: 'tags',
+        dataType: 'array',
+        isRequired: false,
+        items: expect.objectContaining({
+          name: 'item',
+          dataType: 'string',
+        }),
+      });
+
+      expect(results[0].response).toMatchObject({
+        dataType: 'object',
+        rawType: 'me.bandarra.example.todo.appfunctions.model.TodoTaskDto',
+      });
     });
   });
 });

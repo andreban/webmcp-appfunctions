@@ -86,7 +86,7 @@ export class AppFunctionsDiscovery {
     }
 
     const rawOutput = shellResult.stdout || shellResult.raw;
-    const functions = parseRawAppFunctionsJson(rawOutput);
+    const functions = parseRawAppFunctionsJson(rawOutput, options.packageName);
 
     // Extract unique sorted package names
     const packagesSet = new Set<string>();

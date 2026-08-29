@@ -134,6 +134,50 @@ describe('AppFunctionsDiscovery', () => {
       expect(result.packages).toEqual(['com.example.notes']);
     });
 
+    it('extracts packages and groups functions when Android 16 CLI omits top-level package field', async () => {
+      const rawJson = JSON.stringify([
+        {
+          id: 'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask',
+          description: 'Create a task',
+          parameters: [{ name: 'task', type: 'String' }],
+        },
+        {
+          id: 'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#getTasks',
+          description: 'Get tasks',
+          parameters: [],
+        },
+        {
+          id: 'com.example.calendar.CalendarService#addEvent',
+          description: 'Add event',
+          parameters: [],
+        },
+      ]);
+
+      vi.mocked(mockAdbManager.execShell).mockResolvedValue({
+        stdout: rawJson,
+        stderr: '',
+        exitCode: 0,
+        raw: rawJson,
+      });
+
+      const discovery = new AppFunctionsDiscovery(mockAdbManager);
+      const result = await discovery.discover();
+
+      expect(result.totalCount).toBe(3);
+      expect(result.packageCount).toBe(2);
+      expect(result.packages).toEqual([
+        'com.example.calendar',
+        'me.bandarra.example.todo.appfunctions',
+      ]);
+      expect(result.functions[0].packageName).toBe(
+        'me.bandarra.example.todo.appfunctions'
+      );
+      expect(result.functions[1].packageName).toBe(
+        'me.bandarra.example.todo.appfunctions'
+      );
+      expect(result.functions[2].packageName).toBe('com.example.calendar');
+    });
+
     it('handles SecurityException with a friendly permission error', async () => {
       vi.mocked(mockAdbManager.execShell).mockResolvedValue({
         stdout: '',

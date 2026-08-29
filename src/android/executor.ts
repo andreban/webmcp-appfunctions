@@ -53,6 +53,48 @@ export interface ParsedExecutionOutput {
 }
 
 /**
+ * Recursively unwraps single-element arrays from properties in execution result objects,
+ * while preserving multi-element arrays.
+ *
+ * @param payload Raw payload to unwrap.
+ * @returns Unwrapped data structure.
+ */
+export function unwrapExecutionPayload(payload: unknown): unknown {
+  if (payload === null || payload === undefined) {
+    return payload;
+  }
+
+  if (Array.isArray(payload)) {
+    return payload.map((item) => unwrapExecutionPayload(item));
+  }
+
+  if (typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>;
+    const result: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(obj)) {
+      if (Array.isArray(value)) {
+        if (value.length === 1 && (typeof value[0] !== 'object' || value[0] === null)) {
+          result[key] = value[0];
+        } else if (value.length === 1 && typeof value[0] === 'object' && !Array.isArray(value[0])) {
+          result[key] = unwrapExecutionPayload(value[0]);
+        } else {
+          result[key] = value.map((v) => unwrapExecutionPayload(v));
+        }
+      } else if (typeof value === 'object' && value !== null) {
+        result[key] = unwrapExecutionPayload(value);
+      } else {
+        result[key] = value;
+      }
+    }
+
+    return result;
+  }
+
+  return payload;
+}
+
+/**
  * Parses raw CLI output or JSON response from `cmd app_function execute-app-function`
  * into a structured success/data or error result.
  *
@@ -169,13 +211,39 @@ export function parseExecutionOutput(rawOutput: string): ParsedExecutionOutput {
         return { success: false, error: errorMsg, data: obj };
       }
 
+      // Check for androidAppfunctionsReturnValue property (Android 16 AppFunctions execution format)
+      if (obj.androidAppfunctionsReturnValue !== undefined) {
+        const rawReturn = obj.androidAppfunctionsReturnValue;
+        if (Array.isArray(rawReturn)) {
+          if (
+            rawReturn.length === 1 &&
+            typeof rawReturn[0] === 'object' &&
+            rawReturn[0] !== null &&
+            !Array.isArray(rawReturn[0])
+          ) {
+            return {
+              success: true,
+              data: unwrapExecutionPayload(rawReturn[0]),
+            };
+          }
+          if (
+            rawReturn.length === 1 &&
+            (typeof rawReturn[0] !== 'object' || rawReturn[0] === null)
+          ) {
+            return { success: true, data: rawReturn[0] };
+          }
+          return { success: true, data: unwrapExecutionPayload(rawReturn) };
+        }
+        return { success: true, data: unwrapExecutionPayload(rawReturn) };
+      }
+
       // Return result field if present, otherwise the entire object
       const resultData = obj.result !== undefined ? obj.result : obj;
-      return { success: true, data: resultData };
+      return { success: true, data: unwrapExecutionPayload(resultData) };
     }
 
     // Primitives or arrays
-    return { success: true, data: parsedJson };
+    return { success: true, data: unwrapExecutionPayload(parsedJson) };
   }
 
   // Non-JSON plain text handling
