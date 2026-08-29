@@ -199,3 +199,49 @@ export interface DiscoveryResult {
    */
   rawOutput?: string;
 }
+
+/**
+ * Options for executing an AppFunction on an Android device.
+ */
+export interface AppFunctionExecutionOptions {
+  /**
+   * Execution timeout in milliseconds (default: 10000ms).
+   */
+  timeoutMs?: number;
+
+  /**
+   * Optional AbortSignal to cancel command execution.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * Execution result returned from an AppFunction invocation.
+ */
+export interface AppFunctionExecutionResult<T = unknown> {
+  /**
+   * Whether the AppFunction execution succeeded.
+   */
+  success: boolean;
+
+  /**
+   * Parsed data returned by the AppFunction if successful.
+   */
+  data?: T;
+
+  /**
+   * Error message if execution failed.
+   */
+  error?: string;
+
+  /**
+   * Time taken for execution in milliseconds.
+   */
+  executionTimeMs: number;
+
+  /**
+   * Raw stdout/output string from the Android device.
+   */
+  rawOutput?: string;
+}
+
