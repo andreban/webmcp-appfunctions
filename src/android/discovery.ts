@@ -10,7 +10,6 @@ import {
 } from '../types/appfunctions';
 import { parseRawAppFunctionsJson } from './parser';
 import { logger } from '../utils/logger';
-import { escapeShellArg } from '../utils/sanitize';
 
 /**
  * Discovery client that executes and parses `cmd app_function list-app-functions`
@@ -33,15 +32,14 @@ export class AppFunctionsDiscovery {
   /**
    * Constructs the shell command to list registered AppFunctions.
    *
-   * @param packageName Optional package name filter.
+   * Note: The Android 16 CLI tool (`cmd app_function list-app-functions`) does
+   * not accept a `--package` flag. Package-level filtering is performed
+   * client-side in memory.
+   *
    * @returns Formatted shell command string.
    */
-  static buildCommand(packageName?: string): string {
-    const trimmed = packageName?.trim();
-    if (!trimmed) {
-      return 'cmd app_function list-app-functions';
-    }
-    return `cmd app_function list-app-functions --package ${escapeShellArg(trimmed)}`;
+  static buildCommand(): string {
+    return 'cmd app_function list-app-functions';
   }
 
   /**
@@ -57,7 +55,7 @@ export class AppFunctionsDiscovery {
       );
     }
 
-    const command = AppFunctionsDiscovery.buildCommand(options.packageName);
+    const command = AppFunctionsDiscovery.buildCommand();
     logger.info(
       'ADB',
       `Discovering AppFunctions${options.packageName ? ` for package '${options.packageName}'` : ''}...`
@@ -86,7 +84,12 @@ export class AppFunctionsDiscovery {
     }
 
     const rawOutput = shellResult.stdout || shellResult.raw;
-    const functions = parseRawAppFunctionsJson(rawOutput, options.packageName);
+    let functions = parseRawAppFunctionsJson(rawOutput);
+
+    if (options.packageName && options.packageName.trim()) {
+      const targetPkg = options.packageName.trim();
+      functions = functions.filter((fn) => fn.packageName === targetPkg);
+    }
 
     // Extract unique sorted package names
     const packagesSet = new Set<string>();

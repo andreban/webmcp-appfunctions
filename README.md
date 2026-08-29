@@ -238,7 +238,7 @@ webmcp-appfunctions/
 
 | Action | Command |
 | :--- | :--- |
-| **List Functions** | `cmd app_function list-app-functions [--package <pkg>]` |
+| **List Functions** | `cmd app_function list-app-functions` |
 | **Execute Function** | `cmd app_function execute-app-function --package <pkg> --function <id> --parameters '<json>'` |
 | **Set State** | `cmd app_function set-enabled --package <pkg> --function <id> --state <enable\|disable\|default>` |
 

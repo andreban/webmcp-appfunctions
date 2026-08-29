@@ -35,7 +35,7 @@ The bridge relies on the following standard Android 16 (API 36+) shell commands 
 
 ### 2.1 Function Discovery Command
 ```bash
-adb shell cmd app_function list-app-functions [--package <PACKAGE_NAME>]
+adb shell cmd app_function list-app-functions
 ```
 - **Description:** Lists all registered AppFunctions on the device.
 - **Output:** Returns a JSON structure detailing:
@@ -140,7 +140,7 @@ graph TB
 
 #### 2. Android AppFunctions Client (`src/android/`)
 - **`AppFunctionsDiscovery`**:
-  - Executes `cmd app_function list-app-functions` (or package-targeted queries).
+  - Executes `cmd app_function list-app-functions` (package filtering performed client-side).
   - Parses the raw JSON output emitted by Android 16's `app_function` command line utility.
   - Extracts package names, class names, function identifiers, parameter types, optionality, and KDoc descriptions.
 - **`AppFunctionsExecutor`**:
