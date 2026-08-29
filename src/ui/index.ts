@@ -4,3 +4,5 @@
  */
 
 export * from './connection-bar';
+export * from './catalog-view';
+export * from './tester-view';
