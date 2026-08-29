@@ -73,7 +73,9 @@ The application exclusively uses the official Android 16 (API 36+) `cmd app_func
   - Ensure interactive buttons, pills, and badges wrap cleanly, maintain touch-friendly targets, and preserve text legibility.
 
 ### 2.7 Git & Pull Request Workflow
+- **Always Use Dedicated Branches:** The agent **MUST NEVER** commit directly to the `main` branch. All features, tasks, and fixes must be developed on a dedicated branch following naming conventions (`feat/<name>`, `fix/<name>`).
 - **No Commits Without Explicit Confirmation:** The agent **MUST NEVER** execute `git commit` without first presenting the code changes/diff to the user and receiving explicit approval.
+- **Push & Open Pull Requests:** After committing approved changes to the dedicated branch, push the branch to remote (`git push -u origin <branch>`) and open a Pull Request using `gh pr create` referencing the relevant issue.
 - **NEVER Merge Pull Requests:** When creating a Pull Request via `gh pr create`, the agent **MUST NEVER** merge it (`gh pr merge`). Pull requests must always remain open for human review and manual merge.
 
 ---
@@ -135,6 +137,7 @@ webmcp-appfunctions/
 
 ## 5. Summary Checklist Before Committing Changes
 
+- [ ] Changes are made on a dedicated branch (`feat/*` or `fix/*`), never directly on `main`.
 - [ ] All new/modified source files include the standard Apache-2.0 SPDX header.
 - [ ] Code strictly targets native `document.modelContext` (no polyfill fallbacks).
 - [ ] All types reference the official `webmcp-types` package.
@@ -144,4 +147,6 @@ webmcp-appfunctions/
 - [ ] Build (`npm run build`) and tests pass without errors or type warnings.
 - [ ] All UI components are responsive without element collisions, clipped controls, or horizontal overflow on smaller screens.
 - [ ] Explicit user approval has been received prior to running `git commit`.
+- [ ] Pull request created via `gh pr create` and left open for human review.
 - [ ] No Pull Request has been or will be merged automatically by the agent.
+
