@@ -5,7 +5,7 @@
 
 import './styles/main.css';
 import { AdbManager } from './transport/adb-client';
-import { ConnectionBar } from './ui/connection-bar';
+import { ConnectionBar, FunctionCatalog, FunctionTester } from './ui';
 import { WebMcpBridge, isWebMcpSupported } from './webmcp';
 import { logger } from './utils/logger';
 
@@ -16,14 +16,42 @@ const isWebMCPAvailable = isWebMcpSupported();
 logger.info('WebMCP', `Native WebMCP supported: ${isWebMCPAvailable}`);
 
 // Initialize ADB transport manager
-const adbManager = new AdbManager();
+export const adbManager = new AdbManager();
 
 // Initialize WebMCP bridge linked to ADB manager
 export const bridge = new WebMcpBridge({ adbManager });
 
 // Mount ConnectionBar UI component
 const connectionBarContainer = document.getElementById('connection-bar');
+export let connectionBar: ConnectionBar | null = null;
 if (connectionBarContainer) {
-  new ConnectionBar(connectionBarContainer, adbManager);
+  connectionBar = new ConnectionBar(connectionBarContainer, adbManager);
   logger.info('APP', 'ConnectionBar mounted successfully.');
+}
+
+// Mount FunctionTester UI component
+const testerContainer = document.getElementById('tester-view');
+export let functionTester: FunctionTester | null = null;
+if (testerContainer) {
+  functionTester = new FunctionTester(testerContainer, {
+    adbManager,
+    bridge,
+  });
+  logger.info('APP', 'FunctionTester mounted successfully.');
+}
+
+// Mount FunctionCatalog UI component
+const catalogContainer = document.getElementById('catalog-view');
+export let functionCatalog: FunctionCatalog | null = null;
+if (catalogContainer) {
+  functionCatalog = new FunctionCatalog(catalogContainer, {
+    adbManager,
+    bridge,
+    onSelectFunction: (def) => {
+      if (functionTester) {
+        functionTester.selectFunction(def);
+      }
+    },
+  });
+  logger.info('APP', 'FunctionCatalog mounted successfully.');
 }
