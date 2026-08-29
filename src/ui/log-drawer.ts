@@ -24,6 +24,11 @@ export interface LogDrawerOptions {
   isCollapsed?: boolean;
 
   /**
+   * Whether the drawer starts in fullscreen mode (default: false).
+   */
+  isFullscreen?: boolean;
+
+  /**
    * Whether auto-scroll to bottom is enabled by default (default: true).
    */
   autoScroll?: boolean;
@@ -46,13 +51,15 @@ export interface LogDrawerOptions {
 
 /**
  * LogDrawer UI component provides a real-time streaming telemetry and log console
- * with collapsible drawer, auto-scroll, color-coded source tagging ([USB], [ADB], [WebMCP], [EXEC], [APP]),
- * live invocation latency tracking, search & filter controls, and copy/clear log actions.
+ * with collapsible drawer, fullscreen maximize mode, auto-scroll, color-coded source tagging
+ * ([USB], [ADB], [WebMCP], [EXEC], [APP]), live invocation latency tracking, search & filter
+ * controls, and copy/clear log actions.
  */
 export class LogDrawer {
   private container: HTMLElement;
   private logService: StructuredLogger;
   private collapsed = false;
+  private fullscreen = false;
   private autoScroll = true;
   private currentTagFilter: LogTag | 'ALL' = 'ALL';
   private currentLevelFilter: LogLevel | 'ALL' = 'ALL';
@@ -63,6 +70,7 @@ export class LogDrawer {
   private unsubscribeLog: (() => void) | null = null;
   private unsubscribeClear: (() => void) | null = null;
   private copyTimeout: ReturnType<typeof setTimeout> | null = null;
+  private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private isCopied = false;
 
   constructor(
@@ -81,12 +89,14 @@ export class LogDrawer {
 
     this.logService = options.loggerInstance ?? logger;
     this.collapsed = options.isCollapsed ?? false;
+    this.fullscreen = options.isFullscreen ?? false;
     this.autoScroll = options.autoScroll ?? true;
     this.currentTagFilter = options.filterTag ?? 'ALL';
     this.currentLevelFilter = options.filterLevel ?? 'ALL';
     this.maxRenderedEntries = options.maxRenderedEntries ?? 500;
 
     this.bindLoggerEvents();
+    this.bindKeyboardShortcuts();
     this.render();
   }
 
@@ -94,7 +104,14 @@ export class LogDrawer {
    * Returns whether the drawer is currently collapsed.
    */
   isCollapsed(): boolean {
-    return this.collapsed;
+    return this.collapsed && !this.fullscreen;
+  }
+
+  /**
+   * Returns whether the drawer is currently in fullscreen mode.
+   */
+  isFullscreen(): boolean {
+    return this.fullscreen;
   }
 
   /**
@@ -106,7 +123,32 @@ export class LogDrawer {
       return;
     }
     this.collapsed = nextState;
+    if (this.collapsed) {
+      this.fullscreen = false;
+    }
     this.render();
+  }
+
+  /**
+   * Toggles or sets the fullscreen mode of the drawer.
+   */
+  toggleFullscreen(forceFullscreen?: boolean): void {
+    const nextState = forceFullscreen !== undefined ? forceFullscreen : !this.fullscreen;
+    if (this.fullscreen === nextState) {
+      return;
+    }
+    this.fullscreen = nextState;
+    if (this.fullscreen) {
+      this.collapsed = false;
+    }
+    this.render();
+  }
+
+  /**
+   * Sets fullscreen mode.
+   */
+  setFullscreen(enabled: boolean): void {
+    this.toggleFullscreen(enabled);
   }
 
   /**
@@ -231,6 +273,10 @@ export class LogDrawer {
       clearTimeout(this.copyTimeout);
       this.copyTimeout = null;
     }
+    if (this.keydownHandler && typeof window !== 'undefined') {
+      window.removeEventListener('keydown', this.keydownHandler);
+      this.keydownHandler = null;
+    }
     this.container.innerHTML = '';
   }
 
@@ -243,6 +289,17 @@ export class LogDrawer {
       this.expandedDataEntryIds.clear();
       this.render();
     });
+  }
+
+  private bindKeyboardShortcuts(): void {
+    if (typeof window !== 'undefined') {
+      this.keydownHandler = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && this.fullscreen) {
+          this.toggleFullscreen(false);
+        }
+      };
+      window.addEventListener('keydown', this.keydownHandler);
+    }
   }
 
   private handleNewLogEntry(): void {
@@ -261,10 +318,11 @@ export class LogDrawer {
     return all;
   }
 
-  private updateCollapsedClass(): void {
+  private updateDrawerStateClasses(): void {
     if (this.container.classList) {
-      this.container.classList.toggle('drawer-collapsed', this.collapsed);
-      this.container.classList.toggle('drawer-expanded', !this.collapsed);
+      this.container.classList.toggle('drawer-collapsed', this.collapsed && !this.fullscreen);
+      this.container.classList.toggle('drawer-expanded', !this.collapsed && !this.fullscreen);
+      this.container.classList.toggle('drawer-fullscreen', this.fullscreen);
     }
   }
 
@@ -272,20 +330,21 @@ export class LogDrawer {
    * Renders the complete LogDrawer component markup.
    */
   render(): void {
-    this.updateCollapsedClass();
+    this.updateDrawerStateClasses();
     const metrics = this.logService.getMetrics();
     const filteredEntries = this.getFilteredEntries();
+    const isShowingBody = this.fullscreen || !this.collapsed;
 
     this.container.innerHTML = `
-      <div class="log-drawer-inner ${this.collapsed ? 'is-collapsed' : 'is-expanded'}">
+      <div class="log-drawer-inner ${this.fullscreen ? 'is-fullscreen' : this.collapsed ? 'is-collapsed' : 'is-expanded'}">
         ${this.renderHeader(metrics)}
-        ${!this.collapsed ? this.renderBody(filteredEntries) : ''}
+        ${isShowingBody ? this.renderBody(filteredEntries) : ''}
       </div>
     `;
 
     this.attachDomListeners();
 
-    if (!this.collapsed && this.autoScroll) {
+    if (isShowingBody && this.autoScroll) {
       if (typeof requestAnimationFrame !== 'undefined') {
         requestAnimationFrame(() => this.scrollToBottom());
       } else {
@@ -295,6 +354,8 @@ export class LogDrawer {
   }
 
   private renderHeader(metrics: TelemetryMetrics): string {
+    const isCollapsedNow = this.collapsed && !this.fullscreen;
+
     return `
       <div class="log-drawer-header" id="log-drawer-header">
         <div class="log-drawer-title-area">
@@ -302,12 +363,12 @@ export class LogDrawer {
             type="button"
             class="btn-drawer-collapse"
             id="btn-toggle-drawer"
-            aria-label="${this.collapsed ? 'Expand Log Drawer' : 'Collapse Log Drawer'}"
-            title="${this.collapsed ? 'Expand Log Drawer' : 'Collapse Log Drawer'}"
+            aria-label="${isCollapsedNow ? 'Expand Log Drawer' : 'Collapse Log Drawer'}"
+            title="${isCollapsedNow ? 'Expand Log Drawer' : 'Collapse Log Drawer'}"
           >
-            <span class="collapse-icon">${this.collapsed ? '▲' : '▼'}</span>
+            <span class="collapse-icon">${isCollapsedNow ? '▲' : '▼'}</span>
           </button>
-          <div class="log-title-group" id="log-title-toggle">
+          <div class="log-title-group" id="log-title-toggle" title="Click to collapse / double-click to maximize">
             <span class="log-title-icon">📜</span>
             <h4 class="log-drawer-title">Telemetry & Logs</h4>
           </div>
@@ -382,6 +443,18 @@ export class LogDrawer {
             >
               <span class="btn-action-icon">🗑️</span>
               <span class="btn-action-text">Clear</span>
+            </button>
+
+            <button
+              type="button"
+              class="btn-drawer-action btn-fullscreen ${this.fullscreen ? 'active' : ''}"
+              id="btn-fullscreen-toggle"
+              title="${this.fullscreen ? 'Exit Fullscreen (Esc)' : 'Maximize to Fullscreen'}"
+              aria-label="${this.fullscreen ? 'Exit Fullscreen' : 'Maximize to Fullscreen'}"
+              aria-pressed="${String(this.fullscreen)}"
+            >
+              <span class="btn-action-icon">${this.fullscreen ? '🗗' : '⛶'}</span>
+              <span class="btn-action-text">${this.fullscreen ? 'Restore' : 'Fullscreen'}</span>
             </button>
           </div>
         </div>
@@ -520,6 +593,17 @@ export class LogDrawer {
     if (titleGroup) {
       titleGroup.addEventListener('click', () => {
         this.toggleCollapse();
+      });
+      titleGroup.addEventListener('dblclick', () => {
+        this.toggleFullscreen();
+      });
+    }
+
+    // Fullscreen / Maximize toggle button
+    const fullscreenBtn = this.container.querySelector<HTMLButtonElement>('#btn-fullscreen-toggle');
+    if (fullscreenBtn) {
+      fullscreenBtn.addEventListener('click', () => {
+        this.toggleFullscreen();
       });
     }
 
