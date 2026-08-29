@@ -150,7 +150,7 @@ export interface AppFunctionDefinition {
 export interface DiscoveryOptions {
   /**
    * Optional package name to filter discovery (e.g. 'com.example.notes').
-   * If provided, executes `cmd app_function list-app-functions --package <pkg>`.
+   * If provided, filters discovered functions client-side by package name.
    */
   packageName?: string;
 

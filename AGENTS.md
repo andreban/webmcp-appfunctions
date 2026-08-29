@@ -56,7 +56,7 @@ For HTML and Markdown files:
 
 ### 2.4 Android ADB Shell Interface
 The application exclusively uses the official Android 16 (API 36+) `cmd app_function` commands:
-- **Discovery:** `adb shell cmd app_function list-app-functions [--package <pkg>]` (returns JSON schema).
+- **Discovery:** `adb shell cmd app_function list-app-functions` (returns JSON schema).
 - **Execution:** `adb shell cmd app_function execute-app-function --package <pkg> --function <funcId> --parameters '<json>'` (returns JSON result).
 - **State:** `adb shell cmd app_function set-enabled --package <pkg> --function <funcId> --state <enable|disable|default>`.
 - **Security:** All parameters must be JSON-serialized and shell-sanitized before execution to prevent command injection.

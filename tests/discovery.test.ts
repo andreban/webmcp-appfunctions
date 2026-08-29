@@ -22,20 +22,6 @@ describe('AppFunctionsDiscovery', () => {
   describe('buildCommand', () => {
     it('generates base command without package argument', () => {
       expect(AppFunctionsDiscovery.buildCommand()).toBe('cmd app_function list-app-functions');
-      expect(AppFunctionsDiscovery.buildCommand('')).toBe('cmd app_function list-app-functions');
-      expect(AppFunctionsDiscovery.buildCommand('   ')).toBe('cmd app_function list-app-functions');
-    });
-
-    it('generates command with shell-escaped package argument', () => {
-      expect(AppFunctionsDiscovery.buildCommand('com.example.notes')).toBe(
-        "cmd app_function list-app-functions --package 'com.example.notes'"
-      );
-    });
-
-    it('properly escapes package names with special characters or quotes', () => {
-      expect(AppFunctionsDiscovery.buildCommand("com.example.app's")).toBe(
-        "cmd app_function list-app-functions --package 'com.example.app'\\''s'"
-      );
     });
   });
 
@@ -108,11 +94,15 @@ describe('AppFunctionsDiscovery', () => {
       expect(result.executionTimeMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('applies package-level filter when packageName option is provided', async () => {
+    it('applies package-level filter client-side when packageName option is provided', async () => {
       const rawJson = JSON.stringify([
         {
           package: 'com.example.notes',
           function: 'NotesService#createNote',
+        },
+        {
+          package: 'com.example.mail',
+          function: 'MailService#sendMail',
         },
       ]);
 
@@ -127,11 +117,14 @@ describe('AppFunctionsDiscovery', () => {
       const result = await discovery.discover({ packageName: 'com.example.notes' });
 
       expect(mockAdbManager.execShell).toHaveBeenCalledWith(
-        "cmd app_function list-app-functions --package 'com.example.notes'",
+        'cmd app_function list-app-functions',
         expect.anything()
       );
       expect(result.functions).toHaveLength(1);
+      expect(result.functions[0].packageName).toBe('com.example.notes');
       expect(result.packages).toEqual(['com.example.notes']);
+      expect(result.totalCount).toBe(1);
+      expect(result.packageCount).toBe(1);
     });
 
     it('extracts packages and groups functions when Android 16 CLI omits top-level package field', async () => {
@@ -247,24 +240,38 @@ describe('AppFunctionsDiscovery', () => {
   });
 
   describe('discoverByPackage', () => {
-    it('calls discover with target packageName', async () => {
+    it('calls discover with target packageName and filters client-side', async () => {
+      const rawJson = JSON.stringify([
+        {
+          package: 'com.example.calculator',
+          function: 'Calc#add',
+        },
+        {
+          package: 'com.example.notes',
+          function: 'Notes#get',
+        },
+      ]);
+
       vi.mocked(mockAdbManager.execShell).mockResolvedValue({
-        stdout: '[]',
+        stdout: rawJson,
         stderr: '',
         exitCode: 0,
-        raw: '[]',
+        raw: rawJson,
       });
 
       const discovery = new AppFunctionsDiscovery(mockAdbManager);
-      await discovery.discoverByPackage('com.example.calculator', { timeoutMs: 3000 });
+      const result = await discovery.discoverByPackage('com.example.calculator', { timeoutMs: 3000 });
 
       expect(mockAdbManager.execShell).toHaveBeenCalledWith(
-        "cmd app_function list-app-functions --package 'com.example.calculator'",
+        'cmd app_function list-app-functions',
         {
           timeoutMs: 3000,
           signal: undefined,
         }
       );
+      expect(result.functions).toHaveLength(1);
+      expect(result.functions[0].packageName).toBe('com.example.calculator');
+      expect(result.packages).toEqual(['com.example.calculator']);
     });
   });
 
