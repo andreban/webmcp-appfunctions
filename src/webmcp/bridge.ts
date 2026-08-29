@@ -5,6 +5,7 @@
 
 import { AdbManager } from '../transport/adb-client';
 import { AppFunctionDefinition } from '../types/appfunctions';
+import { AppFunctionsExecutor } from '../android/executor';
 import { logger } from '../utils/logger';
 import {
   DEFAULT_TOOL_PREFIX,
@@ -57,6 +58,11 @@ export interface WebMcpBridgeOptions {
   adbManager?: AdbManager;
 
   /**
+   * AppFunctionsExecutor instance for dispatching tool calls to Android device.
+   */
+  executor?: AppFunctionsExecutor;
+
+  /**
    * Whether to automatically start listening for toolchange events on modelContext (default: true).
    */
   listenToToolChange?: boolean;
@@ -70,7 +76,13 @@ export interface WebMcpBridgeOptions {
    * Default tool name prefix for mapped AppFunctions (default: 'android__').
    */
   toolPrefix?: string;
+
+  /**
+   * Default execution timeout in milliseconds.
+   */
+  defaultTimeoutMs?: number;
 }
+
 
 /**
  * Checks whether native WebMCP is available on document.modelContext.
@@ -121,6 +133,7 @@ export function assertWebMcpSupported(): WebMCP.ModelContext {
 export class WebMcpBridge {
   private modelContext: WebMCP.ModelContext | null = null;
   private adbManager: AdbManager | null = null;
+  private executor: AppFunctionsExecutor | null = null;
   private registeredTools: Map<string, RegisteredToolRecord> = new Map();
   private toolChangeListeners: Set<ToolChangeListener> = new Set();
   private toolChangeHandler: ((event: Event) => void) | null = null;
@@ -128,11 +141,21 @@ export class WebMcpBridge {
   private adbStateChangeUnsubscribe: (() => void) | null = null;
   private toolPrefix: string = DEFAULT_TOOL_PREFIX;
   private autoDeregisterOnDisconnect: boolean = true;
+  private defaultTimeoutMs?: number;
 
   constructor(options: WebMcpBridgeOptions = {}) {
     this.modelContext = options.modelContext ?? getModelContext() ?? null;
     this.toolPrefix = options.toolPrefix ?? DEFAULT_TOOL_PREFIX;
     this.autoDeregisterOnDisconnect = options.autoDeregisterOnDisconnect ?? true;
+    this.defaultTimeoutMs = options.defaultTimeoutMs;
+
+    if (options.executor) {
+      this.executor = options.executor;
+    } else if (options.adbManager) {
+      this.executor = new AppFunctionsExecutor(options.adbManager, {
+        defaultTimeoutMs: options.defaultTimeoutMs,
+      });
+    }
 
     if (options.listenToToolChange !== false) {
       this.startListeningToToolChange();
@@ -142,6 +165,7 @@ export class WebMcpBridge {
       this.attachAdbManager(options.adbManager);
     }
   }
+
 
   /**
    * Whether WebMCP is supported and ready for tool registration.
@@ -192,6 +216,12 @@ export class WebMcpBridge {
     this.detachAdbManager();
     this.adbManager = adbManager;
 
+    if (!this.executor) {
+      this.executor = new AppFunctionsExecutor(adbManager, {
+        defaultTimeoutMs: this.defaultTimeoutMs,
+      });
+    }
+
     this.adbDisconnectUnsubscribe = adbManager.onDisconnect(() => {
       if (this.autoDeregisterOnDisconnect) {
         this.handleDeviceDisconnect();
@@ -224,8 +254,28 @@ export class WebMcpBridge {
       this.adbStateChangeUnsubscribe();
       this.adbStateChangeUnsubscribe = null;
     }
+    if (this.executor && this.executor.getAdbManager() === this.adbManager) {
+      this.executor = null;
+    }
     this.adbManager = null;
   }
+
+  /**
+   * Returns the linked AppFunctionsExecutor instance, if available.
+   */
+  getExecutor(): AppFunctionsExecutor | null {
+    return this.executor;
+  }
+
+  /**
+   * Sets or replaces the AppFunctionsExecutor instance.
+   *
+   * @param executor AppFunctionsExecutor instance or null.
+   */
+  setExecutor(executor: AppFunctionsExecutor | null): void {
+    this.executor = executor;
+  }
+
 
   /**
    * Configures whether tools should automatically deregister when the device disconnects.
@@ -395,13 +445,31 @@ export class WebMcpBridge {
     optionsOrExecute?: WebMCP.ToolExecuteCallback | MapToolOptions,
     registerOptions?: WebMCP.ModelContextRegisterToolOptions
   ): Promise<WebMCP.ModelContextTool> {
-    const mapOptions: MapToolOptions =
-      typeof optionsOrExecute === 'function'
-        ? { execute: optionsOrExecute, prefix: this.toolPrefix }
-        : { prefix: this.toolPrefix, ...optionsOrExecute };
+    let executeCallback: WebMCP.ToolExecuteCallback | undefined;
+
+    if (typeof optionsOrExecute === 'function') {
+      executeCallback = optionsOrExecute;
+    } else if (
+      optionsOrExecute &&
+      typeof optionsOrExecute === 'object' &&
+      optionsOrExecute.execute
+    ) {
+      executeCallback = optionsOrExecute.execute;
+    } else if (this.executor) {
+      executeCallback = this.executor.createToolExecuteHandler(def);
+    }
+
+    const mapOptions: MapToolOptions = {
+      prefix: this.toolPrefix,
+      ...(typeof optionsOrExecute === 'object' && optionsOrExecute !== null
+        ? optionsOrExecute
+        : {}),
+      ...(executeCallback ? { execute: executeCallback } : {}),
+    };
 
     const tool = mapAppFunctionToWebMcpTool(def, mapOptions);
     await this.registerTool(tool, registerOptions);
+
 
     const record = this.registeredTools.get(tool.name);
     if (record) {

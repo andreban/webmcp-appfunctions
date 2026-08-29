@@ -4,5 +4,7 @@
  */
 
 export * from './discovery';
+export * from './executor';
 export * from './parser';
 export * from '../types/appfunctions';
+
