@@ -4,3 +4,4 @@
  */
 
 export * from './schema-mapper';
+export * from './bridge';

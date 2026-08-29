@@ -6,19 +6,20 @@
 import './styles/main.css';
 import { AdbManager } from './transport/adb-client';
 import { ConnectionBar } from './ui/connection-bar';
+import { WebMcpBridge, isWebMcpSupported } from './webmcp';
 import { logger } from './utils/logger';
 
 logger.info('APP', 'WebMCP ↔ Android AppFunctions Bridge initializing...');
 
 // Native WebMCP compatibility verification
-if (typeof document !== 'undefined') {
-  const isWebMCPAvailable =
-    'modelContext' in document && Boolean(document.modelContext);
-  logger.info('WebMCP', `Native WebMCP supported: ${isWebMCPAvailable}`);
-}
+const isWebMCPAvailable = isWebMcpSupported();
+logger.info('WebMCP', `Native WebMCP supported: ${isWebMCPAvailable}`);
 
 // Initialize ADB transport manager
 const adbManager = new AdbManager();
+
+// Initialize WebMCP bridge linked to ADB manager
+export const bridge = new WebMcpBridge({ adbManager });
 
 // Mount ConnectionBar UI component
 const connectionBarContainer = document.getElementById('connection-bar');
