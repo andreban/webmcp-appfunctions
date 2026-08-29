@@ -90,17 +90,82 @@ export function extractJsonPayload(rawOutput: string): unknown {
 }
 
 /**
- * Normalizes an Android/Kotlin/Java type string into a standard AppFunctionDataType.
+ * Unwraps a value that may be wrapped in a single-element array by Android GenericDocument serialization.
+ */
+export function unwrapValue<T = unknown>(val: unknown): T | undefined {
+  if (val === null || val === undefined) {
+    return undefined;
+  }
+  if (Array.isArray(val)) {
+    return val.length > 0 ? (val[0] as T) : undefined;
+  }
+  return val as T;
+}
+
+/**
+ * Maps numeric Android AppFunction/AppSearch type codes into AppFunctionDataType.
+ */
+export function mapTypeCodeToDataType(typeCode: number | string): AppFunctionDataType {
+  const num = typeof typeCode === 'number' ? typeCode : Number(typeCode);
+  switch (num) {
+    case 1:
+      return 'boolean';
+    case 2:
+      return 'bytes';
+    case 3:
+      return 'object';
+    case 4:
+      return 'float';
+    case 5:
+      return 'double';
+    case 6:
+      return 'long';
+    case 7:
+      return 'int';
+    case 8:
+      return 'string';
+    case 9:
+      return 'unit';
+    case 10:
+      return 'array';
+    case 11:
+      return 'object';
+    case 12:
+      return 'string';
+    case 13:
+      return 'object';
+    default:
+      return 'unknown';
+  }
+}
+
+/**
+ * Normalizes an Android/Kotlin/Java type string or numeric type code into a standard AppFunctionDataType.
  *
- * @param typeStr Raw type string (e.g. 'java.lang.String', 'List<Int>', 'Boolean', 'float').
+ * @param typeStr Raw type string or numeric code (e.g. 'java.lang.String', 'List<Int>', 'Boolean', 8, 6).
  * @returns Standard AppFunctionDataType.
  */
-export function normalizeDataType(typeStr?: string): AppFunctionDataType {
-  if (!typeStr || typeof typeStr !== 'string') {
+export function normalizeDataType(typeStr?: string | number): AppFunctionDataType {
+  if (typeStr === undefined || typeStr === null) {
+    return 'string';
+  }
+
+  if (typeof typeStr === 'number') {
+    return mapTypeCodeToDataType(typeStr);
+  }
+
+  if (typeof typeStr !== 'string') {
     return 'string';
   }
 
   const trimmed = typeStr.trim();
+  if (!trimmed) {
+    return 'string';
+  }
+  if (/^\d+$/.test(trimmed)) {
+    return mapTypeCodeToDataType(Number(trimmed));
+  }
+
   const lower = trimmed.toLowerCase();
 
   // Strip generic packaging like java.lang.String -> string
@@ -236,8 +301,18 @@ export function parseParameter(
   defaultName = 'arg',
   parentRequired?: string[]
 ): AppFunctionParameter {
-  if (!paramRaw || typeof paramRaw !== 'object') {
-    const rawType = typeof paramRaw === 'string' ? paramRaw : 'string';
+  if (!paramRaw) {
+    return {
+      name: defaultName,
+      dataType: 'string',
+      rawType: 'string',
+      isRequired: parentRequired ? parentRequired.includes(defaultName) : true,
+    };
+  }
+
+  const unwrappedRaw = unwrapValue(paramRaw) || paramRaw;
+  if (typeof unwrappedRaw !== 'object' || unwrappedRaw === null) {
+    const rawType = typeof unwrappedRaw === 'string' ? unwrappedRaw : 'string';
     const dataType = normalizeDataType(rawType);
     return {
       name: defaultName,
@@ -247,54 +322,93 @@ export function parseParameter(
     };
   }
 
-  const raw = paramRaw as Record<string, unknown>;
+  const raw = unwrappedRaw as Record<string, unknown>;
   const name =
-    (raw.name as string) ||
-    (raw.id as string) ||
-    (raw.key as string) ||
-    (raw.propertyName as string) ||
+    (unwrapValue(raw.name) as string) ||
+    (unwrapValue(raw.id) as string) ||
+    (unwrapValue(raw.key) as string) ||
+    (unwrapValue(raw.propertyName) as string) ||
     defaultName;
 
   const description =
-    (raw.description as string) ||
-    (raw.doc as string) ||
-    (raw.kdoc as string) ||
-    (raw.documentation as string) ||
+    (unwrapValue(raw.description) as string) ||
+    (unwrapValue(raw.doc) as string) ||
+    (unwrapValue(raw.kdoc) as string) ||
+    (unwrapValue(raw.documentation) as string) ||
     undefined;
 
-  const rawType =
-    (raw.type as string) ||
-    (raw.dataType as string) ||
-    (raw.rawType as string) ||
-    (raw.paramType as string) ||
+  let rawType =
+    (unwrapValue(raw.type) as string) ||
+    (unwrapValue(raw.dataType) as string) ||
+    (unwrapValue(raw.rawType) as string) ||
+    (unwrapValue(raw.paramType) as string) ||
     'string';
 
   let dataType = normalizeDataType(rawType);
 
+  let items: AppFunctionParameter | undefined;
+  let properties: Record<string, AppFunctionParameter> | undefined;
+
+  // Check dataTypeMetadata (Android 16 AppFunctions metadata format)
+  const rawDataTypeMeta = unwrapValue(raw.dataTypeMetadata);
+  if (rawDataTypeMeta && typeof rawDataTypeMeta === 'object') {
+    const typeMeta = (Array.isArray(rawDataTypeMeta)
+      ? rawDataTypeMeta[0]
+      : rawDataTypeMeta) as Record<string, unknown>;
+    const typeCode = unwrapValue<number | string>(typeMeta.type);
+    if (typeCode !== undefined) {
+      dataType = mapTypeCodeToDataType(typeCode);
+    }
+    const typeRef =
+      (unwrapValue(typeMeta.dataTypeReference) as string) ||
+      (unwrapValue(typeMeta.objectQualifiedName) as string);
+    if (typeRef) {
+      rawType = typeRef;
+    }
+
+    if (dataType === 'array') {
+      const rawItemType = unwrapValue(typeMeta.itemType);
+      if (rawItemType) {
+        items = parseParameter(rawItemType, 'item');
+      }
+    } else if (dataType === 'object') {
+      const rawProps = unwrapValue(typeMeta.properties);
+      if (rawProps && Array.isArray(rawProps)) {
+        properties = {};
+        for (const item of rawProps) {
+          const parsed = parseParameter(item);
+          properties[parsed.name] = parsed;
+        }
+      }
+    }
+  }
+
   // Determine optionality / required status
   let isRequired = true;
-  if (typeof raw.required === 'boolean') {
-    isRequired = raw.required;
-  } else if (typeof raw.isRequired === 'boolean') {
-    isRequired = raw.isRequired;
-  } else if (typeof raw.optional === 'boolean') {
-    isRequired = !raw.optional;
-  } else if (typeof raw.isOptional === 'boolean') {
-    isRequired = !raw.isOptional;
-  } else if (typeof raw.nullable === 'boolean') {
-    isRequired = !raw.nullable;
+  const rawIsReq = unwrapValue(raw.isRequired);
+  const rawReq = unwrapValue(raw.required);
+  const rawOpt = unwrapValue(raw.optional) ?? unwrapValue(raw.isOptional);
+  const rawNullable = unwrapValue(raw.nullable);
+
+  if (typeof rawReq === 'boolean') {
+    isRequired = rawReq;
+  } else if (typeof rawIsReq === 'boolean') {
+    isRequired = rawIsReq;
+  } else if (typeof rawOpt === 'boolean') {
+    isRequired = !rawOpt;
+  } else if (typeof rawNullable === 'boolean') {
+    isRequired = !rawNullable;
   } else if (parentRequired && Array.isArray(parentRequired)) {
     isRequired = parentRequired.includes(name);
   } else if (raw.defaultValue !== undefined || raw.default !== undefined) {
     isRequired = false;
   }
 
-  const defaultValue = raw.defaultValue ?? raw.default;
+  const defaultValue = unwrapValue(raw.defaultValue) ?? unwrapValue(raw.default);
 
-  // Handle nested object properties
-  let properties: Record<string, AppFunctionParameter> | undefined;
+  // Handle nested object properties from legacy fields
   const rawProperties = raw.properties || raw.fields || raw.parameters;
-  if (rawProperties && typeof rawProperties === 'object') {
+  if (!properties && rawProperties && typeof rawProperties === 'object') {
     dataType = 'object';
     properties = {};
     const childRequired = Array.isArray(raw.required) ? (raw.required as string[]) : undefined;
@@ -313,13 +427,12 @@ export function parseParameter(
     }
   }
 
-  // Handle array item type
-  let items: AppFunctionParameter | undefined;
+  // Handle array item type from legacy fields
   const rawItems = raw.items || raw.itemType || raw.elementType;
-  if (rawItems) {
+  if (!items && rawItems) {
     dataType = 'array';
     items = parseParameter(rawItems, 'item');
-  } else if (dataType === 'array' && rawType) {
+  } else if (!items && dataType === 'array' && rawType) {
     const innerType = extractGenericInnerType(rawType);
     if (innerType) {
       items = {
@@ -393,33 +506,72 @@ export function parseResponse(rawResponse: unknown): AppFunctionResponse | undef
     return undefined;
   }
 
-  if (typeof rawResponse === 'string') {
-    const dataType = normalizeDataType(rawResponse);
+  const unwrapped = unwrapValue(rawResponse) || rawResponse;
+
+  if (typeof unwrapped === 'string') {
+    const dataType = normalizeDataType(unwrapped);
     return {
       dataType,
-      rawType: rawResponse,
+      rawType: unwrapped,
     };
   }
 
-  if (typeof rawResponse === 'object') {
-    const raw = rawResponse as Record<string, unknown>;
-    const rawType =
-      (raw.type as string) ||
-      (raw.dataType as string) ||
-      (raw.rawType as string) ||
-      (raw.returnType as string) ||
+  if (typeof unwrapped === 'object' && unwrapped !== null) {
+    const raw = unwrapped as Record<string, unknown>;
+    const description =
+      (unwrapValue(raw.description) as string) ||
+      (unwrapValue(raw.doc) as string) ||
+      (unwrapValue(raw.kdoc) as string) ||
+      (unwrapValue(raw.documentation) as string) ||
+      undefined;
+
+    let rawType =
+      (unwrapValue(raw.type) as string) ||
+      (unwrapValue(raw.dataType) as string) ||
+      (unwrapValue(raw.rawType) as string) ||
+      (unwrapValue(raw.returnType) as string) ||
       'object';
 
     let dataType = normalizeDataType(rawType);
-    const description =
-      (raw.description as string) ||
-      (raw.doc as string) ||
-      (raw.kdoc as string) ||
-      undefined;
-
+    let items: AppFunctionParameter | undefined;
     let properties: Record<string, AppFunctionParameter> | undefined;
+
+    // Check valueType / dataTypeMetadata (Android 16 AppFunctions metadata format)
+    const rawValueType = unwrapValue(raw.valueType) || unwrapValue(raw.dataTypeMetadata);
+    if (rawValueType && typeof rawValueType === 'object') {
+      const typeMeta = (Array.isArray(rawValueType)
+        ? rawValueType[0]
+        : rawValueType) as Record<string, unknown>;
+      const typeCode = unwrapValue<number | string>(typeMeta.type);
+      if (typeCode !== undefined) {
+        dataType = mapTypeCodeToDataType(typeCode);
+      }
+      const typeRef =
+        (unwrapValue(typeMeta.dataTypeReference) as string) ||
+        (unwrapValue(typeMeta.objectQualifiedName) as string);
+      if (typeRef) {
+        rawType = typeRef;
+      }
+
+      if (dataType === 'array') {
+        const rawItemType = unwrapValue(typeMeta.itemType);
+        if (rawItemType) {
+          items = parseParameter(rawItemType, 'item');
+        }
+      } else if (dataType === 'object') {
+        const rawProps = unwrapValue(typeMeta.properties);
+        if (rawProps && Array.isArray(rawProps)) {
+          properties = {};
+          for (const item of rawProps) {
+            const parsed = parseParameter(item);
+            properties[parsed.name] = parsed;
+          }
+        }
+      }
+    }
+
     const rawProperties = raw.properties || raw.fields;
-    if (rawProperties && typeof rawProperties === 'object') {
+    if (!properties && rawProperties && typeof rawProperties === 'object') {
       dataType = 'object';
       properties = {};
       if (Array.isArray(rawProperties)) {
@@ -436,12 +588,11 @@ export function parseResponse(rawResponse: unknown): AppFunctionResponse | undef
       }
     }
 
-    let items: AppFunctionParameter | undefined;
     const rawItems = raw.items || raw.itemType || raw.elementType;
-    if (rawItems) {
+    if (!items && rawItems) {
       dataType = 'array';
       items = parseParameter(rawItems, 'item');
-    } else if (dataType === 'array' && rawType) {
+    } else if (!items && dataType === 'array' && rawType) {
       const innerType = extractGenericInnerType(rawType);
       if (innerType) {
         items = {
@@ -466,6 +617,53 @@ export function parseResponse(rawResponse: unknown): AppFunctionResponse | undef
 }
 
 /**
+ * Extracts a package name from a function identifier or class name when explicit package
+ * fields are absent in the CLI output.
+ *
+ * @param identifier Target identifier (e.g. 'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask' or 'com.example.notes.NotesService').
+ * @returns Extracted package name or empty string.
+ */
+export function extractPackageNameFromIdentifier(identifier?: string): string {
+  if (!identifier || typeof identifier !== 'string') {
+    return '';
+  }
+
+  const trimmed = identifier.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  // If identifier contains '#', take the prefix before '#'
+  const target = trimmed.includes('#') ? trimmed.split('#')[0].trim() : trimmed;
+  if (!target) {
+    return '';
+  }
+
+  const parts = target.split('.').filter(Boolean);
+  if (parts.length < 2) {
+    return '';
+  }
+
+  // Find the index of the first segment starting with an uppercase letter (PascalCase class name)
+  const classIndex = parts.findIndex((part) => /^[A-Z]/.test(part));
+  if (classIndex > 0) {
+    return parts.slice(0, classIndex).join('.');
+  }
+
+  // If no segment starts with uppercase
+  if (classIndex === -1) {
+    // If there was a '#' separator, the entire prefix before '#' is the package identifier
+    if (trimmed.includes('#')) {
+      return parts.join('.');
+    }
+    // If no '#' separator and has >= 2 parts, assume the last part is the method/action name and previous parts are package
+    return parts.slice(0, -1).join('.');
+  }
+
+  return '';
+}
+
+/**
  * Parses a single function item from the raw JSON structure into an AppFunctionDefinition.
  *
  * @param item Raw JSON object representing a function.
@@ -480,31 +678,47 @@ export function parseFunctionDefinition(
     return null;
   }
 
-  const raw = item as Record<string, unknown>;
+  let raw = item as Record<string, unknown>;
 
-  const packageName =
-    (raw.package as string) ||
-    (raw.packageName as string) ||
-    (raw.appPackage as string) ||
-    (raw.pkg as string) ||
-    fallbackPackage ||
-    '';
+  // Check if item is wrapped in AppFunctionStaticMetadata-<pkg>
+  const staticKey = Object.keys(raw).find((k) =>
+    k.startsWith('AppFunctionStaticMetadata')
+  );
 
-  const functionId =
-    (raw.function as string) ||
-    (raw.functionId as string) ||
-    (raw.id as string) ||
-    (raw.name as string) ||
-    (raw.identifier as string) ||
-    '';
-
-  if (!functionId && !packageName) {
-    return null;
+  if (staticKey) {
+    const staticContent = raw[staticKey];
+    if (staticContent && typeof staticContent === 'object') {
+      raw = staticContent as Record<string, unknown>;
+    }
+  } else {
+    // If this object only contains AppFunctionComponentMetadataDocument (component schemas, not a function)
+    const isComponentDoc = Object.keys(raw).some((k) =>
+      k.startsWith('AppFunctionComponentMetadataDocument')
+    );
+    if (isComponentDoc) {
+      return null;
+    }
   }
 
+  const functionId =
+    (unwrapValue(raw.function) as string) ||
+    (unwrapValue(raw.functionId) as string) ||
+    (unwrapValue(raw.id) as string) ||
+    (unwrapValue(raw.name) as string) ||
+    (unwrapValue(raw.identifier) as string) ||
+    '';
+
   // Extract className and methodName
-  let className = (raw.className as string) || (raw.serviceClassName as string) || undefined;
-  let methodName = (raw.methodName as string) || (raw.functionName as string) || undefined;
+  let className =
+    (unwrapValue(raw.className) as string) ||
+    (unwrapValue(raw.serviceName) as string) ||
+    (unwrapValue(raw.serviceClassName) as string) ||
+    undefined;
+  let methodName =
+    (unwrapValue(raw.methodName) as string) ||
+    (unwrapValue(raw.functionName) as string) ||
+    (unwrapValue(raw.schemaName) as string) ||
+    undefined;
 
   if (functionId.includes('#')) {
     const parts = functionId.split('#');
@@ -518,11 +732,36 @@ export function parseFunctionDefinition(
     methodName = functionId;
   }
 
+  const explicitPackage =
+    (unwrapValue(raw.package) as string) ||
+    (unwrapValue(raw.packageName) as string) ||
+    (unwrapValue(raw.appPackage) as string) ||
+    (unwrapValue(raw.applicationPackage) as string) ||
+    (unwrapValue(raw.targetPackage) as string) ||
+    (unwrapValue(raw.package_name) as string) ||
+    (unwrapValue(raw.pkg) as string);
+
+  let packageName = '';
+  if (explicitPackage && typeof explicitPackage === 'string' && explicitPackage.trim()) {
+    packageName = explicitPackage.trim();
+  } else if (fallbackPackage && typeof fallbackPackage === 'string' && fallbackPackage.trim()) {
+    packageName = fallbackPackage.trim();
+  } else {
+    packageName =
+      extractPackageNameFromIdentifier(functionId) ||
+      (className ? extractPackageNameFromIdentifier(className) : '') ||
+      '';
+  }
+
+  if (!functionId && !packageName) {
+    return null;
+  }
+
   const description =
-    (raw.description as string) ||
-    (raw.doc as string) ||
-    (raw.kdoc as string) ||
-    (raw.documentation as string) ||
+    (unwrapValue(raw.description) as string) ||
+    (unwrapValue(raw.doc) as string) ||
+    (unwrapValue(raw.kdoc) as string) ||
+    (unwrapValue(raw.documentation) as string) ||
     undefined;
 
   const rawParams = raw.parameters ?? raw.params ?? raw.arguments ?? raw.inputs;
@@ -539,12 +778,19 @@ export function parseFunctionDefinition(
   const response = parseResponse(rawResp);
 
   let enabled = true;
-  if (typeof raw.enabled === 'boolean') {
-    enabled = raw.enabled;
-  } else if (typeof raw.isEnabled === 'boolean') {
-    enabled = raw.isEnabled;
-  } else if (typeof raw.state === 'string') {
-    enabled = raw.state.toLowerCase() === 'enable' || raw.state.toLowerCase() === 'enabled';
+  const enabledByDefault = unwrapValue(raw.enabledByDefault);
+  const rawEnabled = unwrapValue(raw.enabled);
+  const rawIsEnabled = unwrapValue(raw.isEnabled);
+  const rawState = unwrapValue(raw.state);
+
+  if (typeof enabledByDefault === 'boolean') {
+    enabled = enabledByDefault;
+  } else if (typeof rawEnabled === 'boolean') {
+    enabled = rawEnabled;
+  } else if (typeof rawIsEnabled === 'boolean') {
+    enabled = rawIsEnabled;
+  } else if (typeof rawState === 'string') {
+    enabled = rawState.toLowerCase() === 'enable' || rawState.toLowerCase() === 'enabled';
   }
 
   return {
@@ -565,9 +811,13 @@ export function parseFunctionDefinition(
  * into a list of strongly-typed AppFunctionDefinition objects.
  *
  * @param rawInput Raw stdout string or already-parsed JSON object/array.
+ * @param fallbackPackage Optional fallback package name.
  * @returns Array of parsed AppFunctionDefinition.
  */
-export function parseRawAppFunctionsJson(rawInput: unknown): AppFunctionDefinition[] {
+export function parseRawAppFunctionsJson(
+  rawInput: unknown,
+  fallbackPackage?: string
+): AppFunctionDefinition[] {
   let parsedJson: unknown;
 
   if (typeof rawInput === 'string') {
@@ -585,7 +835,7 @@ export function parseRawAppFunctionsJson(rawInput: unknown): AppFunctionDefiniti
   // Case 1: Direct array of functions: [ {...}, {...} ]
   if (Array.isArray(parsedJson)) {
     for (const item of parsedJson) {
-      const def = parseFunctionDefinition(item);
+      const def = parseFunctionDefinition(item, fallbackPackage);
       if (def) {
         results.push(def);
       }
@@ -602,7 +852,7 @@ export function parseRawAppFunctionsJson(rawInput: unknown): AppFunctionDefiniti
 
     if (Array.isArray(candidateArray)) {
       for (const item of candidateArray) {
-        const def = parseFunctionDefinition(item);
+        const def = parseFunctionDefinition(item, fallbackPackage);
         if (def) {
           results.push(def);
         }
@@ -615,7 +865,16 @@ export function parseRawAppFunctionsJson(rawInput: unknown): AppFunctionDefiniti
       for (const pkgItem of obj.packages) {
         if (pkgItem && typeof pkgItem === 'object') {
           const pkgObj = pkgItem as Record<string, unknown>;
-          const pkgName = (pkgObj.package as string) || (pkgObj.packageName as string) || '';
+          const pkgName =
+            (pkgObj.package as string) ||
+            (pkgObj.packageName as string) ||
+            (pkgObj.appPackage as string) ||
+            (pkgObj.applicationPackage as string) ||
+            (pkgObj.targetPackage as string) ||
+            (pkgObj.package_name as string) ||
+            (pkgObj.pkg as string) ||
+            fallbackPackage ||
+            '';
           const pkgFunctions = pkgObj.functions || pkgObj.appFunctions;
           if (Array.isArray(pkgFunctions)) {
             for (const fnItem of pkgFunctions) {
@@ -648,7 +907,7 @@ export function parseRawAppFunctionsJson(rawInput: unknown): AppFunctionDefiniti
     }
 
     // Case 5: Single function object
-    const singleDef = parseFunctionDefinition(obj);
+    const singleDef = parseFunctionDefinition(obj, fallbackPackage);
     if (singleDef) {
       results.push(singleDef);
       return results;

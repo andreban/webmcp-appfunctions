@@ -252,6 +252,70 @@ describe('AppFunctionsExecutor', () => {
         },
       });
     });
+
+    it('unwraps androidAppfunctionsReturnValue and single-element property arrays (Issue #27)', () => {
+      const output = JSON.stringify({
+        androidAppfunctionsReturnValue: [
+          {
+            id: [5],
+            title: ['Buy groceries for the week'],
+            isCompleted: [false],
+            priority: ['HIGH'],
+            tags: ['groceries', 'shopping'],
+          },
+        ],
+      });
+
+      const parsed = parseExecutionOutput(output);
+      expect(parsed).toEqual({
+        success: true,
+        data: {
+          id: 5,
+          title: 'Buy groceries for the week',
+          isCompleted: false,
+          priority: 'HIGH',
+          tags: ['groceries', 'shopping'],
+        },
+      });
+    });
+
+    it('unwraps multi-item androidAppfunctionsReturnValue arrays', () => {
+      const output = JSON.stringify({
+        androidAppfunctionsReturnValue: [
+          { id: [1], title: ['Task 1'], isCompleted: [true] },
+          { id: [2], title: ['Task 2'], isCompleted: [false] },
+        ],
+      });
+
+      const parsed = parseExecutionOutput(output);
+      expect(parsed).toEqual({
+        success: true,
+        data: [
+          { id: 1, title: 'Task 1', isCompleted: true },
+          { id: 2, title: 'Task 2', isCompleted: false },
+        ],
+      });
+    });
+
+    it('unwraps single primitive return values in androidAppfunctionsReturnValue', () => {
+      expect(
+        parseExecutionOutput(
+          JSON.stringify({ androidAppfunctionsReturnValue: [42] })
+        )
+      ).toEqual({
+        success: true,
+        data: 42,
+      });
+
+      expect(
+        parseExecutionOutput(
+          JSON.stringify({ androidAppfunctionsReturnValue: ['Operation successful'] })
+        )
+      ).toEqual({
+        success: true,
+        data: 'Operation successful',
+      });
+    });
   });
 
   describe('execute', () => {
