@@ -728,5 +728,59 @@ Done.
         rawType: 'me.bandarra.example.todo.appfunctions.model.TodoTaskDto',
       });
     });
+
+    it('parses AppSearch GenericDocument array with schemaType and properties, ignoring component and runtime docs', () => {
+      const rawJson = [
+        {
+          id: 'AppFunctionStaticMetadata-me.bandarra.example.todo#me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask',
+          namespace: 'me.bandarra.example.todo',
+          schemaType: 'AppFunctionStaticMetadata-me.bandarra.example.todo',
+          properties: {
+            functionId: [
+              'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask',
+            ],
+            packageName: ['me.bandarra.example.todo'],
+            description: ['Creates a new todo task.'],
+            parameters: [
+              {
+                name: ['title'],
+                dataTypeMetadata: [{ type: [8], isNullable: [false] }],
+              },
+            ],
+          },
+        },
+        {
+          id: 'AppFunctionRuntimeMetadata-me.bandarra.example.todo#me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask',
+          namespace: 'me.bandarra.example.todo',
+          schemaType: 'AppFunctionRuntimeMetadata-me.bandarra.example.todo',
+          properties: {
+            enabled: [true],
+          },
+        },
+        {
+          id: 'AppFunctionComponentMetadataDocument-me.bandarra.example.todo#components',
+          namespace: 'me.bandarra.example.todo',
+          schemaType: 'AppFunctionComponentMetadataDocument-me.bandarra.example.todo',
+          properties: {
+            dataTypes: [],
+          },
+        },
+      ];
+
+      const results = parseRawAppFunctionsJson(rawJson);
+      expect(results).toHaveLength(1);
+      expect(results[0].packageName).toBe('me.bandarra.example.todo');
+      expect(results[0].functionId).toBe(
+        'me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask'
+      );
+      expect(results[0].methodName).toBe('createTask');
+      expect(results[0].parameters).toHaveLength(1);
+    });
+
+    it('returns null for documents without functionId or methodName', () => {
+      expect(parseFunctionDefinition({ packageName: 'com.example.app' })).toBeNull();
+      expect(parseFunctionDefinition({ schemaType: 'AppFunctionInventory-com.example.app' })).toBeNull();
+      expect(parseFunctionDefinition({ schemaType: 'AppFunctionRuntimeMetadata-com.example.app' })).toBeNull();
+    });
   });
 });

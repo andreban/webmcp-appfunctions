@@ -37,6 +37,10 @@ describe('WebMCP Schema Mapper', () => {
 
       it('rejects invalid WebMCP tool names', () => {
         expect(isValidToolName('')).toBe(false);
+        expect(isValidToolName('1st_tool')).toBe(false);
+        expect(isValidToolName('.hidden_tool')).toBe(false);
+        expect(isValidToolName('-dashed_tool')).toBe(false);
+        expect(isValidToolName(':colon_tool')).toBe(false);
         expect(isValidToolName('tool with spaces')).toBe(false);
         expect(isValidToolName('tool#special!')).toBe(false);
         expect(isValidToolName('tool$var')).toBe(false);
@@ -76,6 +80,15 @@ describe('WebMCP Schema Mapper', () => {
         expect(sanitizeToolName('android::com.example/tool#fn')).toBe('android__com.example_tool_fn');
       });
 
+      it('ensures sanitized tool names start with letter or underscore', () => {
+        expect(sanitizeToolName('123_custom_tool')).toBe('_123_custom_tool');
+        expect(sanitizeToolName('.hidden_tool')).toBe('_hidden_tool');
+        expect(sanitizeToolName('-dashed_tool')).toBe('_dashed_tool');
+        expect(isValidToolName(sanitizeToolName('123_custom_tool'))).toBe(true);
+        expect(isValidToolName(sanitizeToolName('.hidden_tool'))).toBe(true);
+        expect(isValidToolName(sanitizeToolName('-dashed_tool'))).toBe(true);
+      });
+
       it('truncates to maximum 128 characters', () => {
         const longName = 'android__' + 'a'.repeat(200);
         const sanitized = sanitizeToolName(longName);
@@ -95,6 +108,26 @@ describe('WebMCP Schema Mapper', () => {
         const name = formatToolName('com.example.notes', 'NotesService#createNote');
         expect(name).toBe('android__com_example_notes__NotesService_createNote');
         expect(isValidToolName(name)).toBe(true);
+      });
+
+      it('strips AppFunctionStaticMetadata and AppFunctionRuntimeMetadata prefixes', () => {
+        const name = formatToolName(
+          'me.bandarra.example.todo',
+          'AppFunctionStaticMetadata-me.bandarra.example.todo#me.bandarra.example.todo.appfunctions.BaseTodoAppFunctionService#createTask'
+        );
+        expect(name).toBe('android__me_bandarra_example_todo__createTask');
+        expect(isValidToolName(name)).toBe(true);
+        expect(name.length).toBeLessThanOrEqual(MAX_TOOL_NAME_LENGTH);
+      });
+
+      it('shortens long package names to ensure tool names remain under 64 characters', () => {
+        const name = formatToolName(
+          'com.google.android.apps.nexuslauncher',
+          'com.android.launcher3.appfunctions.workspace.WorkspaceAppFunctions#getCurrentWorkspace'
+        );
+        expect(name).toBe('android__nexuslauncher__getCurrentWorkspace');
+        expect(isValidToolName(name)).toBe(true);
+        expect(name.length).toBeLessThanOrEqual(MAX_TOOL_NAME_LENGTH);
       });
 
       it('formats name directly from AppFunctionDefinition object', () => {

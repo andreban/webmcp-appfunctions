@@ -628,9 +628,20 @@ export function extractPackageNameFromIdentifier(identifier?: string): string {
     return '';
   }
 
-  const trimmed = identifier.trim();
+  let trimmed = identifier.trim();
   if (!trimmed) {
     return '';
+  }
+
+  // Strip AppFunctionStaticMetadata- or AppFunctionRuntimeMetadata- prefixes if present
+  if (trimmed.startsWith('AppFunctionStaticMetadata-') || trimmed.startsWith('AppFunctionRuntimeMetadata-')) {
+    const afterPrefix = trimmed.replace(/^AppFunction(Static|Runtime)Metadata-/, '');
+    const hashIdx = afterPrefix.indexOf('#');
+    if (hashIdx !== -1) {
+      trimmed = afterPrefix.slice(hashIdx + 1);
+    } else {
+      trimmed = afterPrefix;
+    }
   }
 
   // If identifier contains '#', take the prefix before '#'
@@ -680,6 +691,20 @@ export function parseFunctionDefinition(
 
   let raw = item as Record<string, unknown>;
 
+  // Check if item is an AppSearch GenericDocument with properties and schemaType
+  const schemaType = (unwrapValue(raw.schemaType) as string) || '';
+  if (schemaType) {
+    // If this document is runtime metadata, component metadata, inventory, etc., skip it
+    if (
+      schemaType.startsWith('AppFunctionComponentMetadataDocument') ||
+      schemaType.startsWith('AppFunctionRuntimeMetadata') ||
+      schemaType.startsWith('AppFunctionInventory') ||
+      schemaType.startsWith('AppFunctionPackageMetadata')
+    ) {
+      return null;
+    }
+  }
+
   // Check if item is wrapped in AppFunctionStaticMetadata-<pkg>
   const staticKey = Object.keys(raw).find((k) =>
     k.startsWith('AppFunctionStaticMetadata')
@@ -691,22 +716,42 @@ export function parseFunctionDefinition(
       raw = staticContent as Record<string, unknown>;
     }
   } else {
-    // If this object only contains AppFunctionComponentMetadataDocument (component schemas, not a function)
-    const isComponentDoc = Object.keys(raw).some((k) =>
-      k.startsWith('AppFunctionComponentMetadataDocument')
+    // If this object represents non-function metadata (component schemas, runtime metadata, etc.), skip it
+    const isNonFunctionDoc = Object.keys(raw).some((k) =>
+      k.startsWith('AppFunctionComponentMetadataDocument') ||
+      k.startsWith('AppFunctionRuntimeMetadata') ||
+      k.startsWith('AppFunctionInventory') ||
+      k.startsWith('AppFunctionPackageMetadata')
     );
-    if (isComponentDoc) {
+    if (isNonFunctionDoc) {
       return null;
     }
   }
 
-  const functionId =
+  // If raw has a nested properties object (standard AppSearch GenericDocument format), merge it
+  if (raw.properties && typeof raw.properties === 'object' && !Array.isArray(raw.properties)) {
+    const props = raw.properties as Record<string, unknown>;
+    raw = { ...raw, ...props };
+  }
+
+  let functionId =
     (unwrapValue(raw.function) as string) ||
     (unwrapValue(raw.functionId) as string) ||
     (unwrapValue(raw.id) as string) ||
     (unwrapValue(raw.name) as string) ||
     (unwrapValue(raw.identifier) as string) ||
     '';
+
+  // Strip AppFunctionStaticMetadata-<pkg># or AppFunctionRuntimeMetadata-<pkg># prefixes from functionId if present
+  if (
+    functionId.startsWith('AppFunctionStaticMetadata-') ||
+    functionId.startsWith('AppFunctionRuntimeMetadata-')
+  ) {
+    const hashIdx = functionId.indexOf('#');
+    if (hashIdx !== -1) {
+      functionId = functionId.slice(hashIdx + 1);
+    }
+  }
 
   // Extract className and methodName
   let className =
@@ -728,7 +773,7 @@ export function parseFunctionDefinition(
     if (!methodName && parts[1]) {
       methodName = parts[1].trim();
     }
-  } else if (!methodName) {
+  } else if (!methodName && functionId) {
     methodName = functionId;
   }
 
@@ -739,7 +784,8 @@ export function parseFunctionDefinition(
     (unwrapValue(raw.applicationPackage) as string) ||
     (unwrapValue(raw.targetPackage) as string) ||
     (unwrapValue(raw.package_name) as string) ||
-    (unwrapValue(raw.pkg) as string);
+    (unwrapValue(raw.pkg) as string) ||
+    (unwrapValue(raw.namespace) as string);
 
   let packageName = '';
   if (explicitPackage && typeof explicitPackage === 'string' && explicitPackage.trim()) {
@@ -753,7 +799,8 @@ export function parseFunctionDefinition(
       '';
   }
 
-  if (!functionId && !packageName) {
+  // A valid AppFunction MUST have a function identifier (functionId or methodName)
+  if (!functionId && !methodName) {
     return null;
   }
 
@@ -795,7 +842,7 @@ export function parseFunctionDefinition(
 
   return {
     packageName,
-    functionId: functionId || methodName || 'unknown',
+    functionId: functionId || (methodName as string) || '',
     className,
     methodName,
     description: description ? description.trim() : undefined,

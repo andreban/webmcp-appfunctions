@@ -97,10 +97,10 @@ export interface MapToolOptions {
 }
 
 /**
- * Regular expression validating WebMCP tool name constraints:
- * 1-128 characters, ASCII alphanumeric, '_', '-', or '.'.
+ * Regular expression validating WebMCP and agent-compatible tool name constraints:
+ * 1-128 characters, ASCII alphanumeric, '_', '.', ':', or '-', and MUST start with a letter or underscore.
  */
-export const WEBMCP_TOOL_NAME_REGEX = /^[a-zA-Z0-9_.-]{1,128}$/;
+export const WEBMCP_TOOL_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_.:-]{0,127}$/;
 
 /**
  * Default tool name prefix for Android AppFunctions exposed via WebMCP.
@@ -109,11 +109,13 @@ export const DEFAULT_TOOL_PREFIX = 'android__';
 
 /**
  * Maximum character length allowed for WebMCP tool names.
+ * Capped at 64 characters to guarantee full compatibility with agent prefixes (e.g. '_0_')
+ * and universal support across Gemini (128 chars), OpenAI (64 chars), and Anthropic (64 chars).
  */
-export const MAX_TOOL_NAME_LENGTH = 128;
+export const MAX_TOOL_NAME_LENGTH = 64;
 
 /**
- * Validates whether a string satisfies WebMCP tool naming constraints.
+ * Validates whether a string satisfies WebMCP and AI agent tool naming constraints.
  *
  * @param name Candidate tool name string.
  * @returns True if valid, false otherwise.
@@ -143,8 +145,107 @@ export function sanitizeIdentifier(str: string): string {
 }
 
 /**
- * Sanitizes an entire tool name to guarantee full compliance with WebMCP naming rules
- * (1-128 characters, ASCII alphanumeric, '_', '-', or '.').
+ * Extracts a concise, meaningful package segment (e.g. 'nexuslauncher' from 'com.google.android.apps.nexuslauncher')
+ * for use when tool names would otherwise exceed agent naming constraints.
+ *
+ * @param pkg Android package name.
+ * @returns Shortened package identifier.
+ */
+export function shortenPackageName(pkg: string): string {
+  if (!pkg) {
+    return '';
+  }
+
+  const parts = pkg.split('.').filter(Boolean);
+  if (parts.length <= 1) {
+    return sanitizeIdentifier(pkg);
+  }
+
+  // Common generic package prefixes to ignore
+  const ignoredPrefixes = new Set(['com', 'org', 'net', 'io', 'me', 'android', 'google', 'apps', 'app']);
+
+  // Find the last meaningful segments
+  const meaningful = parts.filter((part) => !ignoredPrefixes.has(part.toLowerCase()));
+  if (meaningful.length > 0) {
+    // If multiple meaningful parts, join up to the last 2
+    return sanitizeIdentifier(meaningful.slice(-2).join('_'));
+  }
+
+  // Fallback to the last segment
+  return sanitizeIdentifier(parts[parts.length - 1]);
+}
+
+/**
+ * Extracts clean simple class and method names from functionId and/or className/methodName.
+ *
+ * @param functionId Raw function identifier string.
+ * @param explicitClass Optional explicit class name.
+ * @param explicitMethod Optional explicit method name.
+ * @returns Object with simple className and clean methodName.
+ */
+export function extractCleanComponents(
+  functionId?: string,
+  explicitClass?: string,
+  explicitMethod?: string
+): { className?: string; methodName: string } {
+  let rawClass = explicitClass;
+  let rawMethod = explicitMethod;
+
+  let cleanId = functionId ? functionId.trim() : '';
+
+  // Strip AppFunction metadata prefixes
+  if (cleanId.startsWith('AppFunctionStaticMetadata-') || cleanId.startsWith('AppFunctionRuntimeMetadata-')) {
+    const hashIdx = cleanId.indexOf('#');
+    if (hashIdx !== -1) {
+      cleanId = cleanId.slice(hashIdx + 1);
+    }
+  }
+
+  if (cleanId.includes('#')) {
+    const parts = cleanId.split('#');
+    if (!rawClass && parts[0]) {
+      rawClass = parts[0];
+    }
+    if (!rawMethod && parts[1]) {
+      rawMethod = parts[1];
+    }
+  } else if (!rawMethod && cleanId) {
+    if (cleanId.includes('.')) {
+      const parts = cleanId.split('.');
+      rawMethod = parts.pop()!;
+      if (!rawClass && parts.length > 0) {
+        rawClass = parts.join('.');
+      }
+    } else {
+      rawMethod = cleanId;
+    }
+  }
+
+  // Extract simple class name (part after the last dot)
+  let simpleClass: string | undefined;
+  if (rawClass && rawClass.trim()) {
+    const trimmed = rawClass.trim();
+    simpleClass = trimmed.includes('.') ? trimmed.split('.').pop()!.trim() : trimmed;
+  }
+
+  // Extract clean method name
+  let methodName = rawMethod && rawMethod.trim() ? rawMethod.trim() : 'tool';
+  if (methodName.includes('#')) {
+    methodName = methodName.split('#').pop()!.trim();
+  }
+  if (methodName.includes('.')) {
+    methodName = methodName.split('.').pop()!.trim();
+  }
+
+  return {
+    className: simpleClass,
+    methodName: methodName || 'tool',
+  };
+}
+
+/**
+ * Sanitizes an entire tool name to guarantee full compliance with WebMCP and AI agent naming rules
+ * (1-64 characters, starts with a-z/A-Z/_, contains only ASCII alphanumeric, '_', '.', ':', or '-').
  *
  * @param rawName Raw candidate tool name.
  * @param fallback Fallback name if the raw name cannot produce valid characters.
@@ -168,7 +269,22 @@ export function sanitizeToolName(rawName: string, fallback = 'android__tool'): s
     return fallback;
   }
 
-  // Truncate to maximum allowed length
+  // Ensure tool name starts with a letter or underscore [a-zA-Z_]
+  if (/^[0-9]/.test(cleaned)) {
+    cleaned = `_${cleaned}`;
+  } else if (/^[.-]/.test(cleaned)) {
+    cleaned = cleaned.replace(/^[.-]+/, '_');
+  }
+
+  if (!/^[a-zA-Z_]/.test(cleaned)) {
+    cleaned = `_${cleaned.replace(/^[^a-zA-Z0-9_]+/, '')}`;
+  }
+
+  if (cleaned.length === 0 || cleaned === '_') {
+    return fallback;
+  }
+
+  // Truncate to maximum allowed length (64 characters)
   if (cleaned.length > MAX_TOOL_NAME_LENGTH) {
     cleaned = cleaned.slice(0, MAX_TOOL_NAME_LENGTH);
   }
@@ -203,11 +319,15 @@ export function formatToolName(
 ): string {
   let pkg = '';
   let func = '';
+  let explicitClass: string | undefined;
+  let explicitMethod: string | undefined;
   let prefix = DEFAULT_TOOL_PREFIX;
 
   if (typeof defOrPkg === 'object' && defOrPkg !== null) {
     pkg = defOrPkg.packageName || '';
     func = defOrPkg.functionId || defOrPkg.methodName || '';
+    explicitClass = defOrPkg.className;
+    explicitMethod = defOrPkg.methodName;
     if (typeof functionIdOrPrefix === 'string') {
       prefix = functionIdOrPrefix;
     }
@@ -219,25 +339,66 @@ export function formatToolName(
     }
   }
 
-  // Strip redundant package prefix if functionId starts with full package name
-  if (pkg && func.startsWith(`${pkg}.`)) {
-    func = func.slice(pkg.length + 1);
-  } else if (pkg && func.startsWith(`${pkg}#`)) {
-    func = func.slice(pkg.length + 1);
+  const sanitizedPkg = sanitizeIdentifier(pkg);
+
+  if (!func && sanitizedPkg) {
+    return sanitizeToolName(`${prefix}${sanitizedPkg}`);
   }
 
-  const sanitizedPkg = sanitizeIdentifier(pkg);
-  const sanitizedFunc = sanitizeIdentifier(func);
+  const { className, methodName } = extractCleanComponents(func, explicitClass, explicitMethod);
+  const sanitizedMethod = sanitizeIdentifier(methodName) || 'tool';
+  const sanitizedClass = className ? sanitizeIdentifier(className) : '';
+
+  // Candidate with both class and method (e.g. NotesService_createNote)
+  const classAndMethod =
+    sanitizedClass && sanitizedClass !== sanitizedMethod
+      ? `${sanitizedClass}_${sanitizedMethod}`
+      : sanitizedMethod;
 
   let rawToolName: string;
-  if (sanitizedPkg && sanitizedFunc) {
-    rawToolName = `${prefix}${sanitizedPkg}__${sanitizedFunc}`;
-  } else if (sanitizedFunc) {
-    rawToolName = `${prefix}${sanitizedFunc}`;
-  } else if (sanitizedPkg) {
-    rawToolName = `${prefix}${sanitizedPkg}`;
+
+  if (sanitizedPkg) {
+    // 1. Try full package with class and method
+    const fullPkgWithClassAndMethod = `${prefix}${sanitizedPkg}__${classAndMethod}`;
+    if (fullPkgWithClassAndMethod.length <= MAX_TOOL_NAME_LENGTH) {
+      rawToolName = fullPkgWithClassAndMethod;
+    } else {
+      // 2. Try full package with method only
+      const fullPkgWithMethod = `${prefix}${sanitizedPkg}__${sanitizedMethod}`;
+      if (fullPkgWithMethod.length <= MAX_TOOL_NAME_LENGTH) {
+        rawToolName = fullPkgWithMethod;
+      } else {
+        // 3. Try short package with class and method
+        const shortPkg = shortenPackageName(pkg);
+        const shortPkgWithClassAndMethod = shortPkg
+          ? `${prefix}${shortPkg}__${classAndMethod}`
+          : `${prefix}${classAndMethod}`;
+        if (shortPkgWithClassAndMethod.length <= MAX_TOOL_NAME_LENGTH) {
+          rawToolName = shortPkgWithClassAndMethod;
+        } else {
+          // 4. Try short package with method only
+          const shortPkgWithMethod = shortPkg
+            ? `${prefix}${shortPkg}__${sanitizedMethod}`
+            : `${prefix}${sanitizedMethod}`;
+          if (shortPkgWithMethod.length <= MAX_TOOL_NAME_LENGTH) {
+            rawToolName = shortPkgWithMethod;
+          } else {
+            // 5. Prefix with method only
+            const methodOnly = `${prefix}${sanitizedMethod}`;
+            rawToolName = methodOnly.slice(0, MAX_TOOL_NAME_LENGTH);
+          }
+        }
+      }
+    }
   } else {
-    rawToolName = `${prefix}tool`;
+    // No package provided
+    const nameWithClass = `${prefix}${classAndMethod}`;
+    if (nameWithClass.length <= MAX_TOOL_NAME_LENGTH) {
+      rawToolName = nameWithClass;
+    } else {
+      const nameWithMethod = `${prefix}${sanitizedMethod}`;
+      rawToolName = nameWithMethod.slice(0, MAX_TOOL_NAME_LENGTH);
+    }
   }
 
   return sanitizeToolName(rawToolName);
