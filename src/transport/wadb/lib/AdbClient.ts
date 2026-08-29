@@ -35,6 +35,7 @@ export class AdbClient implements MessageListener {
   private messageChannel: MessageChannel;
   private messageQueue = new AsyncBlockingQueue<Message>();
   private openStreams: Set<Stream> = new Set();
+  private pendingStreams: Map<number, (msg: Message) => void> = new Map();
 
   /**
    * Creates a new AdbClient
@@ -56,14 +57,32 @@ export class AdbClient implements MessageListener {
     this.openStreams.delete(stream);
   }
 
+  registerPendingStream(localId: number, resolver: (msg: Message) => void): void {
+    this.pendingStreams.set(localId, resolver);
+  }
+
+  unregisterPendingStream(localId: number): void {
+    this.pendingStreams.delete(localId);
+  }
+
   newMessage(msg: Message): void {
-    // Check if this message matches one of the open streams.
+    // 1. Check if this message matches one of the open streams.
     const streams = Array.from(this.openStreams);
     for (const stream of streams) {
       if (stream.consumeMessage(msg)) {
         return;
       }
     }
+
+    // 2. Check if this message is a response to a pending Stream.open (arg1 is localId).
+    const pendingResolver = this.pendingStreams.get(msg.header.arg1);
+    if (pendingResolver) {
+      this.pendingStreams.delete(msg.header.arg1);
+      pendingResolver(msg);
+      return;
+    }
+
+    // 3. Otherwise enqueue to generic queue (for connect / auth handshake).
     this.messageQueue.enqueue(msg);
   }
 

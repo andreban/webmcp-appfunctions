@@ -162,6 +162,7 @@ export class AdbManager {
   private errorListeners: Set<AdbErrorListener> = new Set();
   private disconnectListeners: Set<AdbDisconnectListener> = new Set();
   private usbDisconnectHandler: ((event: USBConnectionEvent) => void) | null = null;
+  private shellQueue: Promise<unknown> = Promise.resolve();
 
   constructor(options: Partial<Options> = {}, keyStore?: BrowserKeyStore) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
@@ -355,13 +356,15 @@ export class AdbManager {
 
   /**
    * Executes a shell command on the connected Android device.
+   * Serializes execution through an internal promise chain to prevent
+   * WebUSB transfer collisions.
    *
    * @param command The command to execute (e.g. 'cmd app_function list-app-functions').
    * @param options Execution options including timeoutMs and AbortSignal.
    * @returns Structured ShellResult.
    */
   async execShell(command: string, options?: ExecOptions): Promise<ShellResult> {
-    if (this.state !== 'ready' || !this.client) {
+    if (this.state !== 'ready' && this.state !== 'connecting') {
       const err = new Error(
         `Cannot execute command: ADB connection is not ready (current state: ${this.state}).`
       );
@@ -370,8 +373,30 @@ export class AdbManager {
       throw err;
     }
 
+    if (!this.client) {
+      const err = new Error('Cannot execute command: ADB client is not initialized.');
+      const diagnostic = diagnoseAdbError(err);
+      this.emitError(err, diagnostic);
+      throw err;
+    }
+
+    const run = async (): Promise<ShellResult> => {
+      if (!this.client) {
+        throw new Error(
+          `Cannot execute command: ADB connection is not ready (current state: ${this.state}).`
+        );
+      }
+      return execShell(this.client, command, options);
+    };
+
+    const queuedExecution = this.shellQueue
+      .catch(() => {})
+      .then(run);
+
+    this.shellQueue = queuedExecution;
+
     try {
-      return await execShell(this.client, command, options);
+      return await queuedExecution;
     } catch (err) {
       const diagnostic = diagnoseAdbError(err);
       this.emitError(err instanceof Error ? err : new Error(String(err)), diagnostic);
@@ -381,12 +406,12 @@ export class AdbManager {
 
   /**
    * Fetches extended device properties via Android `getprop` shell command.
-   * Updates cached deviceInfo and notifies state listeners.
+   * Updates cached deviceInfo and notifies state listeners if already connected.
    *
    * @returns Updated AdbDeviceInfo or null if not connected.
    */
   async fetchDeviceMetadata(): Promise<AdbDeviceInfo | null> {
-    if (this.state !== 'ready' || !this.client || !this.deviceInfo) {
+    if (!this.client || !this.deviceInfo) {
       return this.deviceInfo;
     }
 
@@ -413,11 +438,13 @@ export class AdbManager {
           `Fetched device metadata: ${updated.manufacturer ?? ''} ${updated.model ?? ''} (Android ${updated.androidVersion ?? '?'}, SDK ${updated.sdkVersion ?? '?'})`
         );
 
-        for (const listener of this.stateListeners) {
-          try {
-            listener(this.state);
-          } catch (err) {
-            logger.error('ADB', 'Error in state change listener:', err);
+        if (this.state === 'ready') {
+          for (const listener of this.stateListeners) {
+            try {
+              listener(this.state);
+            } catch (err) {
+              logger.error('ADB', 'Error in state change listener:', err);
+            }
           }
         }
       }
@@ -520,5 +547,6 @@ export class AdbManager {
     }
 
     this.device = null;
+    this.shellQueue = Promise.resolve();
   }
 }
