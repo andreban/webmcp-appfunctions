@@ -22,23 +22,32 @@ import {MessageListener} from './MessageListener';
 
 export class MessageChannel {
   private active = true;
+  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(
       readonly transport: Transport,
       readonly options: Options,
       readonly listener: MessageListener) {
-    this.readLoop();
+    void this.readLoop();
   }
 
   private async readLoop(): Promise<void> {
-    let message: Message;
-    do {
-      message = await this.read();
-      if (this.options.debug) {
-        console.log('<<<', message);
+    try {
+      while (this.active) {
+        const message = await this.read();
+        if (this.options.debug) {
+          console.log('<<<', message);
+        }
+        this.listener.newMessage(message);
       }
-      this.listener.newMessage(message);
-    } while(this.active);
+    } catch (err) {
+      if (this.active) {
+        if (this.options.debug) {
+          console.debug('MessageChannel readLoop ended:', err);
+        }
+        this.active = false;
+      }
+    }
   }
 
   private async readHeader(): Promise<MessageHeader> {
@@ -68,10 +77,42 @@ export class MessageChannel {
     if (this.options.debug) {
       console.log('>>>', m);
     }
-    const data = m.header.toDataView();
-    await this.transport.write(data.buffer as ArrayBuffer);
-    if (m.data) {
-      await this.transport.write(m.data.buffer as ArrayBuffer);
+
+    // Combine header and payload into a single contiguous ArrayBuffer for atomic WebUSB transfer
+    const headerView = m.header.toDataView();
+    let payload: ArrayBuffer;
+
+    if (m.data && m.data.byteLength > 0) {
+      const combined = new Uint8Array(24 + m.data.byteLength);
+      combined.set(
+        new Uint8Array(headerView.buffer, headerView.byteOffset, headerView.byteLength),
+        0
+      );
+      combined.set(
+        new Uint8Array(m.data.buffer, m.data.byteOffset, m.data.byteLength),
+        24
+      );
+      payload = combined.buffer as ArrayBuffer;
+    } else {
+      const single = new Uint8Array(headerView.byteLength);
+      single.set(
+        new Uint8Array(headerView.buffer, headerView.byteOffset, headerView.byteLength),
+        0
+      );
+      payload = single.buffer as ArrayBuffer;
     }
+
+    // Serialize writes through a promise queue to prevent concurrent transferOut operations
+    const currentWrite = this.writeQueue
+      .catch(() => {})
+      .then(async () => {
+        if (!this.active) {
+          return;
+        }
+        await this.transport.write(payload);
+      });
+
+    this.writeQueue = currentWrite;
+    return currentWrite;
   }
 }

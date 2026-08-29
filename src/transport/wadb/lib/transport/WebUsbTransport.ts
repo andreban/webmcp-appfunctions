@@ -55,6 +55,10 @@ export class WebUsbTransport implements Transport {
    * @param {ArrayBuffer} data the data to be sent to the interface
    */
   async write(data: ArrayBuffer): Promise<void> {
+    if (!this.device.opened) {
+      throw new Error('WebUsbTransport: Cannot write, USB device is not open');
+    }
+
     if (this.options.dump) {
       hexdump(new DataView(data), '' + this.endpointOut + '==> ');
     }
@@ -65,15 +69,52 @@ export class WebUsbTransport implements Transport {
   /**
    * Receives data from the USB device
    *
-   * @param {number} len the length of date to be read
-   * @returns {Promise<DataView} data read from the device
+   * @param {number} len the length of data to be read
+   * @returns {Promise<DataView>} data read from the device
    */
   async read(len: number): Promise<DataView> {
-    const response = await this.device.transferIn(this.endpointIn, len);
-    if (!response.data) {
-      throw new Error('Response didn\'t contain any data');
+    if (!this.device.opened) {
+      throw new Error('WebUsbTransport: Cannot read, USB device is not open');
     }
-    return response.data;
+
+    const response = await this.device.transferIn(this.endpointIn, len);
+    if (!response.data || response.data.byteLength === 0) {
+      throw new Error("Response didn't contain any data");
+    }
+
+    if (response.data.byteLength === len) {
+      return response.data;
+    }
+
+    // Assemble partial chunks if fewer bytes were returned than requested
+    const chunks: Uint8Array[] = [
+      new Uint8Array(response.data.buffer, response.data.byteOffset, response.data.byteLength),
+    ];
+    let totalBytes = response.data.byteLength;
+
+    while (totalBytes < len && this.device.opened) {
+      const nextResponse = await this.device.transferIn(this.endpointIn, len - totalBytes);
+      if (!nextResponse.data || nextResponse.data.byteLength === 0) {
+        break;
+      }
+      chunks.push(
+        new Uint8Array(
+          nextResponse.data.buffer,
+          nextResponse.data.byteOffset,
+          nextResponse.data.byteLength
+        )
+      );
+      totalBytes += nextResponse.data.byteLength;
+    }
+
+    const fullBuffer = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      fullBuffer.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    return new DataView(fullBuffer.buffer);
   }
 
   /**

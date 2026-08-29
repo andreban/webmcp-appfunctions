@@ -41,8 +41,10 @@ export class Stream {
   }
 
   consumeMessage(msg: Message): boolean {
-    if (msg.header.arg0 === 0 || msg.header.arg0 !== this.remoteId ||
-      msg.header.arg1 === 0 || msg.header.arg1 !== this.localId) {
+    if (msg.header.arg1 === 0 || msg.header.arg1 !== this.localId) {
+      return false;
+    }
+    if (msg.header.arg0 !== 0 && msg.header.arg0 !== this.remoteId) {
       return false;
     }
     this.messageQueue.enqueue(msg);
@@ -229,26 +231,32 @@ export class Stream {
     const localId = Stream.nextId++;
     let remoteId = 0;
     const m = Message.open(localId, remoteId, service, options.useChecksum);
-    await adbClient.sendMessage(m);
 
-    let response;
-    do {
-      response = await adbClient.awaitMessage();
-    } while (response.header.arg1 !== localId);
+    const openPromise = new Promise<Message>((resolve) => {
+      adbClient.registerPendingStream(localId, resolve);
+    });
 
-    if (response.header.cmd !== 'OKAY') {
-      throw new Error('OPEN Failed');
+    try {
+      await adbClient.sendMessage(m);
+      const response = await openPromise;
+
+      if (response.header.cmd !== 'OKAY') {
+        throw new Error(`OPEN Failed: device responded with ${response.header.cmd}`);
+      }
+
+      remoteId = response.header.arg0;
+      if (options.debug) {
+        console.log(`Opened stream ${service}`);
+        console.log(` local_id: 0x${toHex32(localId)}`);
+        console.log(` remote_id: 0x${toHex32(remoteId)}`);
+      }
+
+      const stream = new Stream(adbClient, service, localId, remoteId, options);
+      adbClient.registerStream(stream);
+      return stream;
+    } catch (err) {
+      adbClient.unregisterPendingStream(localId);
+      throw err;
     }
-
-    remoteId = response.header.arg0;
-    if (options.debug) {
-      console.log(`Opened stream ${service}`);
-      console.log(` local_id: 0x${toHex32(localId)}`);
-      console.log(` remote_id: 0x${toHex32(remoteId)}`);
-    }
-
-    const stream = new Stream(adbClient, service, localId, remoteId, options);
-    adbClient.registerStream(stream);
-    return stream;
   }
 }
