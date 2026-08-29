@@ -72,6 +72,10 @@ The application exclusively uses the official Android 16 (API 36+) `cmd app_func
   - Stack multi-column grids or side-by-side split panels vertically on smaller viewports using `@media` breakpoints.
   - Ensure interactive buttons, pills, and badges wrap cleanly, maintain touch-friendly targets, and preserve text legibility.
 
+### 2.7 Git & Pull Request Workflow
+- **No Commits Without Explicit Confirmation:** The agent **MUST NEVER** execute `git commit` without first presenting the code changes/diff to the user and receiving explicit approval.
+- **NEVER Merge Pull Requests:** When creating a Pull Request via `gh pr create`, the agent **MUST NEVER** merge it (`gh pr merge`). Pull requests must always remain open for human review and manual merge.
+
 ---
 
 ## 3. Repository Architecture
@@ -139,3 +143,5 @@ webmcp-appfunctions/
 - [ ] No private variables or fields prefixed with underscore (`_`).
 - [ ] Build (`npm run build`) and tests pass without errors or type warnings.
 - [ ] All UI components are responsive without element collisions, clipped controls, or horizontal overflow on smaller screens.
+- [ ] Explicit user approval has been received prior to running `git commit`.
+- [ ] No Pull Request has been or will be merged automatically by the agent.
