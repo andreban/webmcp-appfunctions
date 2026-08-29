@@ -437,4 +437,52 @@ describe('ConnectionBar Component', () => {
       expect(mockContainer.innerHTML).toBe('');
     });
   });
+
+  describe('Responsive Structure & CSS Class Mapping', () => {
+    it('renders all structural sections required for responsive layout adaptation', () => {
+      const mockInfo: AdbDeviceInfo = {
+        productName: 'komodo',
+        productDevice: 'komodo',
+        productModel: 'Pixel 9 Pro',
+        features: ['cmd'],
+        manufacturer: 'Google',
+        model: 'Pixel 9 Pro',
+        androidVersion: '16',
+        sdkVersion: '36',
+        serialNumber: 'ABC123XYZ',
+      };
+
+      vi.mocked(mockManager.getState).mockReturnValue('ready');
+      vi.mocked(mockManager.getDeviceInfo).mockReturnValue(mockInfo);
+
+      const bar = new ConnectionBar(mockContainer, mockManager);
+
+      // Verify outer flex container
+      expect(mockContainer.innerHTML).toContain('connection-bar-inner');
+
+      // Verify 3 responsive section containers
+      expect(mockContainer.innerHTML).toContain('connection-bar-brand');
+      expect(mockContainer.innerHTML).toContain('connection-bar-center');
+      expect(mockContainer.innerHTML).toContain('connection-bar-actions');
+
+      // Verify brand details and badge container
+      expect(mockContainer.innerHTML).toContain('brand-title');
+      expect(mockContainer.innerHTML).toContain('brand-badges');
+      expect(mockContainer.innerHTML).toContain('compat-badge');
+
+      // Verify metadata details and tag containers
+      expect(mockContainer.innerHTML).toContain('device-metadata-card');
+      expect(mockContainer.innerHTML).toContain('device-primary');
+      expect(mockContainer.innerHTML).toContain('device-tags');
+      expect(mockContainer.innerHTML).toContain('meta-tag version-tag');
+      expect(mockContainer.innerHTML).toContain('meta-tag api-tag');
+
+      // Verify action items
+      expect(mockContainer.innerHTML).toContain('status-pill');
+      expect(mockContainer.innerHTML).toContain('btn-disconnect');
+      expect(mockContainer.innerHTML).toContain('btn-help');
+
+      bar.destroy();
+    });
+  });
 });

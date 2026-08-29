@@ -64,6 +64,14 @@ The application exclusively uses the official Android 16 (API 36+) `cmd app_func
 ### 2.5 TypeScript Style & Member Naming
 - **Private Variables & Fields:** Do NOT prefix private fields or variables with an underscore (`_`). Use TypeScript's `private` access modifier directly (e.g., `private state:` rather than `private _state:`).
 
+### 2.6 Responsive Layout & UI Design
+- **Universal Responsiveness:** All UI components, headers, panels, toolbars, and modal/drawer views **MUST** be responsive and fully functional across desktop (>=1024px), tablet (768px–1023px), and mobile (<768px) viewports.
+- **No Overflow or Collisions:** UI elements must not overlap, crowd, or cause unintentional horizontal scrolling on narrow screens.
+- **Responsive CSS Conventions:**
+  - Use `flex-wrap: wrap` and fluid sizing (`min-width: 0`, `max-width: 100%`) on multi-item flex containers.
+  - Stack multi-column grids or side-by-side split panels vertically on smaller viewports using `@media` breakpoints.
+  - Ensure interactive buttons, pills, and badges wrap cleanly, maintain touch-friendly targets, and preserve text legibility.
+
 ---
 
 ## 3. Repository Architecture
@@ -130,3 +138,4 @@ webmcp-appfunctions/
 - [ ] Shell parameter inputs are safely escaped and JSON-encoded.
 - [ ] No private variables or fields prefixed with underscore (`_`).
 - [ ] Build (`npm run build`) and tests pass without errors or type warnings.
+- [ ] All UI components are responsive without element collisions, clipped controls, or horizontal overflow on smaller screens.
